@@ -31,8 +31,8 @@ void findLocalMaximums(int numrho, int numangle, int threshold, int *accum, std:
 	    int up_index = (r > 0) ? (r-1) * (numangle) + n: -1;
 	    int down_index = (r < numrho - 1) ? (r+1) * (numangle) + n: -1;
             if (accum[base_index] >= threshold &&
-                (left_index == -1 || accum[base_index] > accum[base_index - 1]) && 
-		(right_index == -1 || accum[base_index] >= accum[base_index + 1]) &&
+                (left_index == -1 || accum[base_index] > accum[left_index]) && 
+		(right_index == -1 || accum[base_index] >= accum[right_index]) &&
                 (up_index == -1 || accum[base_index] >= accum[up_index]) && 
 		(down_index == -1 || accum[base_index] > accum[down_index]))
                 sort_buf.push_back(base_index);
@@ -40,9 +40,10 @@ void findLocalMaximums(int numrho, int numangle, int threshold, int *accum, std:
 
 }
 
-std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h) {
+std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h, size_t lines_max) {
   // Create the accumulator
-  int accum_height = 2 * (int) sqrt(w*w + h*h);
+  //int accum_height = 2 * (int) sqrt(w*w + h*h);
+  int accum_height = 2 * (w + h) + 1;
   int accum_width = 180;
   constexpr double PI = 3.14159;
 
@@ -52,12 +53,12 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
   for (int i = 0; i < h; i++) {
     for (int j = 0; j < w; j++) {
 	//if (img_data[i*w + j] != 0) {
-	if (img_data.at<float>(i,j) != 0.0f) {
+	if (img_data.at<uint8_t>(i,j) != 0) {
 	  for (int theta = 0; theta < accum_width; theta++) {
 	    int rho = round(j * cos(theta * (PI / 180.0f)) + i * sin(theta * (PI / 180.0f)));
-	    std::cout << "INIT RHO: " << rho;
+	    //std::cout << "INIT RHO: " << rho;
 	    rho += (accum_height - 1)/2;
-	    std::cout << " INTERMEDIATE: " << (accum_height - 1) / 2 << " FINAL: " << rho << std::endl;
+	    //std::cout << " INTERMEDIATE: " << (accum_height - 1) / 2 << " FINAL: " << rho << std::endl;
 	    int index = (rho * accum_width) + theta;
 	    //std::cout << "index is " << index << std::endl;
 	    accum[index]++;
@@ -74,10 +75,11 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
   // stage 3. sort the detected lines by accumulator value
   std::sort(sort_buf.begin(), sort_buf.end(), hough_cmp_gt(accum));
 
-  for (int index: sort_buf) {
+  for (int l = 0; l < min(sort_buf.size(), lines_max); ++l) {
+    int index = sort_buf.at(l);
     float rho = (index/accum_width) - ((accum_height - 1) / 2);
     float theta = (index % accum_width) * (PI / 180.0f);
-    std::cout << "rho: " << rho << ", theta: " << theta << std::endl;
+    //std::cout << "rho: " << rho << ", theta: " << theta << std::endl;
     lines.push_back(std::make_tuple(rho, theta));
   }
 
@@ -117,13 +119,13 @@ int main() {
     vector<Vec2f> cvlines; // will hold the results of the detection
     std::vector<std::tuple<float, float>> lines;
     HoughLines(dst, cvlines, 1, CV_PI/180, 150, 0, 0 ); // runs the actual detection
-    lines = hough_transform(dst, src.rows, src.cols);
+    lines = hough_transform(dst, src.cols, src.rows, 150);
     // Draw the lines
-    for( size_t i = 0; i < min(lines.size(), cvlines.size()); i++ )
+    for( size_t i = 0; i < lines.size(); i++ )
     {
-        float cvrho = cvlines[i][0], cvtheta = cvlines[i][1];
 	float rho = get<0>(lines[i]), theta = get<1>(lines[i]);	
-	std::cout << "CV R: " << cvrho << " T: " << cvtheta << " MY R: " << rho << " T: " << theta << std::endl;
+	float crho = cvlines[i][0], ctheta = cvlines[i][1];	
+	std::cout << "Actual R: " << crho << " T: " << ctheta << "MINE R: " << rho << " T: " << theta << std::endl;
         Point pt1, pt2;
         double a = cos(theta), b = sin(theta);
         double x0 = a*rho, y0 = b*rho;
