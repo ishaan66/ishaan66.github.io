@@ -184,52 +184,6 @@ int main() {
         line(cdst, pt1, pt2, Scalar(0,0,255), 3, 16);
     }
 
-    // Probabilistic Line Transform
-    //vector<Vec4i> linesP; // will hold the results of the detection
-    //HoughLinesP(dst, linesP, 1, CV_PI/180, 50, 50, 10 ); // runs the actual detection
-    //![hough_lines_p]
-    //![draw_lines_p]
-    // Draw the lines
-    /*
-    for( size_t i = 0; i < linesP.size(); i++ )
-    {
-        Vec4i l = linesP[i];
-        line( cdstP, Point(l[0], l[1]), Point(l[2], l[3]), Scalar(0,0,255), 3, 16);
-    }
-    */
     imwrite("out_simd.jpg", cdst);
-
-  /**
-  Mat dst;
-  int h = 10;
-  int w = 10;
-
-  // Loads an image
-  Mat src = imread("nyc.jpg" , IMREAD_GRAYSCALE );
-
-  // Check if image is loaded fine
-  if(src.empty()){
-      printf(" Error opening image\n");
-      return -1;
-  }
-
-  // Edge detection
-  Canny(src, dst, 50, 200, 3);
-
-  // Standard Hough Line Transform
-  vector<Vec2f> lines; // will hold the results of the detection
-  HoughLines(dst, lines, 1, CV_PI/180, 150, 0, 0 ); // runs the actual detection
-  
-  unsigned char *img_data = new unsigned char[h*w];
-  img_data[50] = 1;
-  img_data[60] = 1;
-  img_data[22] = 1; 
-  std::vector<std::tuple<int,int>> lines = hough_transform(img_data, w, h);
-  
-  for (auto elem: lines) {
-    cout << get<0>(elem) << " " << get<1>(elem)  << endl;	  
-  }
-  */
-  
   return 0;
 }
