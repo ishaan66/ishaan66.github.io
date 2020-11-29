@@ -56,9 +56,13 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
 	if (img_data.at<uint8_t>(i,j) != 0) {
 	  for (int theta = 0; theta < accum_width; theta++) {
 	    int rho = round(j * cos(theta * (PI / 180.0f)) + i * sin(theta * (PI / 180.0f)));
-	    //std::cout << "INIT RHO: " << rho;
 	    rho += (accum_height - 1)/2;
-	    //std::cout << " INTERMEDIATE: " << (accum_height - 1) / 2 << " FINAL: " << rho << std::endl;
+/*
+	    std::cout << "rho " << rho << std::endl;
+	    std::cout << "width " << accum_width << std::endl;
+	    std::cout << "theta " << theta << std::endl;
+	    //std::cout << " FINAL: " << rho << std::endl;
+*/
 	    int index = (rho * accum_width) + theta;
 	    //std::cout << "index is " << index << std::endl;
 	    accum[index]++;
@@ -92,8 +96,8 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
   }
   */
   
-  std::cout << "accum size is " << accum_height * accum_width  << "\n";
-  std::cout << "Image width: " << w << " Height: " << h << " Total: " << w*h << std::endl;
+  //std::cout << "accum size is " << accum_height * accum_width  << "\n";
+  //std::cout << "Image width: " << w << " Height: " << h << " Total: " << w*h << std::endl;
   delete accum;
   return lines;
 }
@@ -119,13 +123,13 @@ int main() {
     vector<Vec2f> cvlines; // will hold the results of the detection
     std::vector<std::tuple<float, float>> lines;
     HoughLines(dst, cvlines, 1, CV_PI/180, 150, 0, 0 ); // runs the actual detection
-    lines = hough_transform(dst, src.cols, src.rows, 150);
+    lines = hough_transform(dst, src.cols, src.rows, 100);
     // Draw the lines
     for( size_t i = 0; i < lines.size(); i++ )
     {
 	float rho = get<0>(lines[i]), theta = get<1>(lines[i]);	
 	float crho = cvlines[i][0], ctheta = cvlines[i][1];	
-	std::cout << "Actual R: " << crho << " T: " << ctheta << "MINE R: " << rho << " T: " << theta << std::endl;
+	//std::cout << "Actual R: " << crho << " T: " << ctheta << "MINE R: " << rho << " T: " << theta << std::endl;
         Point pt1, pt2;
         double a = cos(theta), b = sin(theta);
         double x0 = a*rho, y0 = b*rho;

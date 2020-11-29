@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <opencv2/opencv.hpp>
 
-#define PI 3.14159265
+#define PI 3.14159265f
 
 using namespace cv;
 using namespace std;
@@ -19,130 +19,120 @@ using namespace std;
 
 struct hough_cmp_gt
 {
-    hough_cmp_gt(const int64_t* _aux) : aux(_aux) {}
-    inline bool operator()(int64_t l1, int64_t l2) const
+    hough_cmp_gt(const int32_t* _aux) : aux(_aux) {}
+    inline bool operator()(int32_t l1, int32_t l2) const
     {
         return aux[l1] > aux[l2] || (aux[l1] == aux[l2] && l1 < l2);
     }
-    const int64_t* aux;
+    const int32_t* aux;
 };
 
-void findLocalMaximums(int numrho, int numangle, int threshold, int64_t *accum, std::vector<int> &sort_buf) {
+void findLocalMaximums(int numrho, int numangle, int threshold, int32_t *accum, std::vector<int> &sort_buf, unsigned int size) {
     for(int r = 0; r < numrho; r++ )
         for(int n = 0; n < numangle; n++ )
         {
             int base_index = r * (numangle) + n;
+	    int left_index = (base_index - 1) < 0 ? -1 : base_index - 1;
+	    int right_index = (base_index + 1) > size ? -1 : base_index - 1;
 	    int up_index = (r > 0) ? (r-1) * (numangle) + n: -1;
 	    int down_index = (r < numrho - 1) ? (r+1) * (numangle) + n: -1;
-            if( accum[base_index] >= threshold &&
-                accum[base_index] > accum[base_index - 1] && accum[base_index] >= accum[base_index + 1] &&
+            if (accum[base_index] >= threshold &&
+                (left_index == -1 || accum[base_index] > accum[left_index]) && 
+		(right_index == -1 || accum[base_index] >= accum[right_index]) &&
                 (up_index == -1 || accum[base_index] >= accum[up_index]) && 
-		(down_index == -1 || accum[base_index] > accum[down_index]) )
+		(down_index == -1 || accum[base_index] > accum[down_index])) {
                 sort_buf.push_back(base_index);
+	    }
         }
 
 }
 
-std::vector<std::tuple<int, int>> hough_transform(Mat img_data, int w, int h) {
+std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h, size_t lines_max) {
   // Create the accumulator
-  int accum_height = 2 * (int) sqrt(w*w + h*h);
-  int accum_width = 180;
+  int32_t accum_height = 2 * (w + h) + 1;
+  int32_t accum_width = 180;
 
-  int64_t accum[accum_height * accum_width];
-  memset(accum, 0, sizeof(int64_t) * accum_height * accum_width);
+  int32_t accum[accum_height * accum_width];
+  memset(accum, 0, sizeof(int32_t) * accum_height * accum_width);
 
-  double cos_theta[180];
-  double sin_theta[180];
-  int64_t theta_vals[180];
+  float cos_theta[180];
+  float sin_theta[180];
+  int32_t theta_vals[180];
   
   for (int i = 0; i < 180; i++) {
-    cos_theta[i] = cos(i * PI/180);
-    sin_theta[i] = sin(i * PI/180);
+    cos_theta[i] = cos(i * PI/180.0f);
+    sin_theta[i] = sin(i * PI/180.0f);
     theta_vals[i] = i;
   }
 
-  __m256d x;
-  __m256d y;
+  __m256 x;
+  __m256 y;
 
-  __m256d rho_vec;
-  __m256d cos_vec1;
-  __m256d sin_vec1;
-  __m256i theta_vec1;
-  __m256d rho_floor;
-  __m256i rho_index;
+  __m256 rho_vec;
+  __m256 cos_vec1;
+  __m256 sin_vec1;
+  __m256 theta_vec1;
+  __m256 rho_floor;
+  __m256i index;
   __m256i values;
 
 
-  int64_t accum_w = accum_width;
-  double  half_rho_height = (accum_height-1)/2;
-  __m256d half_rho_height_v = _mm256_set_pd(half_rho_height, half_rho_height, half_rho_height, half_rho_height);
-  __m256i accum_width_v = _mm256_set_epi64x(accum_w, accum_w, accum_w, accum_w);
+  float half_rho_height = (accum_height-1)/2;
+  float accum_w = accum_width * 1.0f;
+  __m256 half_rho_height_v = _mm256_broadcast_ss(&half_rho_height);
+  __m256 accum_width_v = _mm256_broadcast_ss((float *)&accum_w);
 
   for (int i = 0; i < h; i++) {
     for (int j = 0; j < w; j++) {
-	//if (img_data[i*w + j] != 0) {
-	if (img_data.at<float>(i, j) != 0) {
-	  double xval = j;
-	  double yval = i;
+	if (img_data.at<uint8_t>(i, j) != 0) {
 
-	  x = _mm256_broadcast_sd(&xval);
-	  y = _mm256_broadcast_sd(&yval);
-
-	  int index_buf[4];
-	  int value_buf[4];
-
-	  for (int64_t theta = 0; theta < accum_width; theta += 4) {
-	    rho_vec = _mm256_setzero_pd();
-	    cos_vec1 = _mm256_loadu_pd(&cos_theta[theta]);
-	    sin_vec1 = _mm256_loadu_pd(&sin_theta[theta]);
-	    theta_vec1 = _mm256_set_epi64x(theta, theta+1, theta+2, theta+3);
-
-	    rho_vec = _mm256_fmadd_pd(x, cos_vec1, rho_vec);
-	    rho_vec = _mm256_fmadd_pd(y, sin_vec1, rho_vec);
-
-	    rho_floor = _mm256_round_pd(rho_vec, 0x09);
-	    //rho_index = _mm256_castpd_si256(rho_floor);
-            
-	    rho_index = _mm256_castpd_si256(_mm256_add_pd(half_rho_height_v, rho_floor));
-            rho_index = _mm256_castpd_si256(_mm256_fmadd_pd(_mm256_castsi256_pd(accum_width_v), 
-			    _mm256_castsi256_pd(rho_index), _mm256_castsi256_pd(theta_vec1)));
+	  float x_val = j*1.0f;
+	  float y_val = i*1.0f;
+	  x = _mm256_broadcast_ss((float *)&x_val);
+	  y = _mm256_broadcast_ss((float *)&y_val);
 
 
-	    accum[_mm256_extract_epi64(rho_index, 0)]++;
-	    accum[_mm256_extract_epi64(rho_index, 1)]++;
-	    accum[_mm256_extract_epi64(rho_index, 2)]++;
-	    accum[_mm256_extract_epi64(rho_index, 3)]++;
+	  for (int32_t theta = 0; theta < accum_width; theta += 8) {
+	    rho_vec = _mm256_setzero_ps();
+	    cos_vec1 = _mm256_loadu_ps(&(cos_theta[theta]));
+	    sin_vec1 = _mm256_loadu_ps(&(sin_theta[theta]));
+	    theta_vec1 = _mm256_set_ps(theta+7.0f, theta+6.0f, theta+5.0f, theta+4.0f,
+				       theta+3.0f, theta+2.0f, theta+1.0f, theta+0.0f);
+	    rho_vec = _mm256_fmadd_ps(x, cos_vec1, rho_vec);
+	    rho_vec = _mm256_fmadd_ps(y, sin_vec1, rho_vec);
+
+	    rho_floor = _mm256_round_ps(rho_vec, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
+	    rho_floor = _mm256_add_ps(half_rho_height_v, rho_floor);
+            index = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_floor, theta_vec1));
+
+	    accum[_mm256_extract_epi32(index, 0)]++;
+	    accum[_mm256_extract_epi32(index, 1)]++;
+	    accum[_mm256_extract_epi32(index, 2)]++;
+	    accum[_mm256_extract_epi32(index, 3)]++;
+	    accum[_mm256_extract_epi32(index, 4)]++;
+	    accum[_mm256_extract_epi32(index, 5)]++;
+	    accum[_mm256_extract_epi32(index, 6)]++;
+	    accum[_mm256_extract_epi32(index, 7)]++;
 	  }
 	}	
     }
   }
 
-  std::vector<std::tuple<int, int>> lines;
+  std::vector<std::tuple<float, float>> lines;
   std::vector<int> sort_buf;
   // find local maximums
-  findLocalMaximums(accum_height, accum_width, 2, accum, sort_buf);
+  findLocalMaximums(accum_height, accum_width, 2, accum, sort_buf, accum_height*accum_width);
 
   // stage 3. sort the detected lines by accumulator value
   std::sort(sort_buf.begin(), sort_buf.end(), hough_cmp_gt(accum));
 
-  for (int index: sort_buf) {
-    int rho = index/accum_width;
-    int theta = index % accum_width;
-    std::cout << "rho: " << rho << ", theta: " << theta << std::endl;
+  for (int l = 0; l < min(sort_buf.size(), lines_max); ++l) {
+    int index = sort_buf.at(l);
+    float rho = index/accum_width - half_rho_height;
+    float theta = (index % accum_width) * (PI / 180.0f);
     lines.push_back(std::make_tuple(rho, theta));
   }
 
-  
-  for (int i = 0;i < accum_height; i++) {
-    for (int j = 0; j < accum_width; j++) {
-      std::cout << accum[i * accum_width + j] << " ";
-    }
-    std::cout << "\n";
-  }
-  
-  
-  
-  std::cout << "accum size is " << accum_height * accum_width  << "\n";
   return lines;
 }
 
@@ -166,13 +156,12 @@ int main() {
 
     // Standard Hough Line Transform
     //vector<Vec2f> lines; // will hold the results of the detection
-    std::vector<std::tuple<int, int>> lines;
+    std::vector<std::tuple<float, float>> lines;
     //HoughLines(dst, lines, 1, CV_PI/180, 150, 0, 0 ); // runs the actual detection
-    lines = hough_transform(dst, src.rows, src.cols);
+    lines = hough_transform(dst, src.cols, src.rows, 100);
     // Draw the lines
     for( size_t i = 0; i < lines.size(); i++ )
     {
-        //float rho = lines[i][0], theta = lines[i][1];
 	float rho = get<0>(lines[i]), theta = get<1>(lines[i]);	
         Point pt1, pt2;
         double a = cos(theta), b = sin(theta);
@@ -183,7 +172,6 @@ int main() {
         pt2.y = cvRound(y0 - 1000*(a));
         line(cdst, pt1, pt2, Scalar(0,0,255), 3, 16);
     }
-
     imwrite("out_simd.jpg", cdst);
   return 0;
 }
