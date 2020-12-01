@@ -109,6 +109,7 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
 	    accum[_mm256_extract_epi32(index, 1)]++;
 	    accum[_mm256_extract_epi32(index, 2)]++;
 	    accum[_mm256_extract_epi32(index, 3)]++;
+	    if (theta >= 176) break;
 	    accum[_mm256_extract_epi32(index, 4)]++;
 	    accum[_mm256_extract_epi32(index, 5)]++;
 	    accum[_mm256_extract_epi32(index, 6)]++;
