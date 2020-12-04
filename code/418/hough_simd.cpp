@@ -10,12 +10,19 @@
 #include <tuple>
 #include <algorithm>
 #include <opencv2/opencv.hpp>
+#include <stdlib.h>
+#include <math.h>
 
 #define PI 3.14159265f
 
 using namespace cv;
 using namespace std;
 
+static __inline__ unsigned long long rdtsc(void) {
+	unsigned hi, lo;
+	__asm__ __volatile__ ("rdtsc" : "=a"(lo), "=d"(hi));
+	return ((unsigned long long)lo) | (((unsigned long long)hi)<<32);
+}
 
 struct hough_cmp_gt
 {
@@ -57,67 +64,348 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
 
   float cos_theta[180];
   float sin_theta[180];
-  int32_t theta_vals[180];
   
   for (int i = 0; i < 180; i++) {
     cos_theta[i] = cos(i * PI/180.0f);
     sin_theta[i] = sin(i * PI/180.0f);
-    theta_vals[i] = i;
   }
 
-  __m256 x;
-  __m256 y;
+  __m256 x_y_1;
+  __m256 x_y_2;
+  __m256 x_y_3;
+  //__m256 x_y_4;
+  //__m256 x_y_5;
 
-  __m256 rho_vec;
-  __m256 cos_vec1;
-  __m256 sin_vec1;
+  __m256 rho_vec_set1_1;
+  __m256 rho_vec_set1_2;
+
+  __m256 rho_vec_set2_1;
+  __m256 rho_vec_set2_2;
+
+  __m256 rho_vec_set3_1;
+  __m256 rho_vec_set3_2;
+
+  __m256 rho_vec_set4_1;
+  __m256 rho_vec_set4_2;
+
+  __m256 rho_vec_set5_1;
+  __m256 rho_vec_set5_2;
+
+  __m256 trig_vec1;
+  __m256 trig_vec2;
+
   __m256 theta_vec1;
-  __m256 rho_floor;
-  __m256i index;
-  __m256i values;
+  __m256 theta_vec2;
 
+  __m256i index1;
+  __m256 theta_offset;
 
   float half_rho_height = (accum_height-1)/2;
   float accum_w = accum_width * 1.0f;
   __m256 half_rho_height_v = _mm256_broadcast_ss(&half_rho_height);
   __m256 accum_width_v = _mm256_broadcast_ss((float *)&accum_w);
 
+  std::vector<std::tuple<float, float>> positions;
   for (int i = 0; i < h; i++) {
     for (int j = 0; j < w; j++) {
-	if (img_data.at<uint8_t>(i, j) != 0) {
-
-	  float x_val = j*1.0f;
-	  float y_val = i*1.0f;
-	  x = _mm256_broadcast_ss((float *)&x_val);
-	  y = _mm256_broadcast_ss((float *)&y_val);
-
-
-	  for (int32_t theta = 0; theta < accum_width; theta += 8) {
-	    rho_vec = _mm256_setzero_ps();
-	    cos_vec1 = _mm256_loadu_ps(&(cos_theta[theta]));
-	    sin_vec1 = _mm256_loadu_ps(&(sin_theta[theta]));
-	    theta_vec1 = _mm256_set_ps(theta+7.0f, theta+6.0f, theta+5.0f, theta+4.0f,
-				       theta+3.0f, theta+2.0f, theta+1.0f, theta+0.0f);
-	    rho_vec = _mm256_fmadd_ps(x, cos_vec1, rho_vec);
-	    rho_vec = _mm256_fmadd_ps(y, sin_vec1, rho_vec);
-
-	    rho_floor = _mm256_round_ps(rho_vec, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
-	    rho_floor = _mm256_add_ps(half_rho_height_v, rho_floor);
-            index = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_floor, theta_vec1));
-
-	    accum[_mm256_extract_epi32(index, 0)]++;
-	    accum[_mm256_extract_epi32(index, 1)]++;
-	    accum[_mm256_extract_epi32(index, 2)]++;
-	    accum[_mm256_extract_epi32(index, 3)]++;
-	    if (theta >= 176) break;
-	    accum[_mm256_extract_epi32(index, 4)]++;
-	    accum[_mm256_extract_epi32(index, 5)]++;
-	    accum[_mm256_extract_epi32(index, 6)]++;
-	    accum[_mm256_extract_epi32(index, 7)]++;
-	  }
-	}	
+      if (img_data.at<uint8_t>(i, j) != 0) {
+        positions.push_back(std::make_tuple(i*1.0f,j*1.0f));
+      }
     }
   }
+
+
+  float temp_theta[16] = {1.0f,2.0f,3.0f,4.0f,5.0f,6.0f,7.0f,
+	                  8.0f,9.0f,10.0f,11.0f,12.0f,12.0f,14.0f,15.0f};
+  std::cout << "Size of positions: " << positions.size() << std::endl;
+  auto t0 = rdtsc();
+  for (int i = 0; i < positions.size()-4; i+=5) { // off by one error
+    float x_val_1 = std::get<0>(positions.at(i));
+    float y_val_1 = std::get<1>(positions.at(i));
+    
+    float x_val_2 = std::get<0>(positions.at(i+1));
+    float y_val_2 = std::get<1>(positions.at(i+1));
+    
+    float x_val_3 = std::get<0>(positions.at(i+2));
+    float y_val_3 = std::get<1>(positions.at(i+2));
+    
+    float x_val_4 = std::get<0>(positions.at(i+3));
+    float y_val_4 = std::get<1>(positions.at(i+3));
+
+    float x_val_5 = std::get<0>(positions.at(i+4));
+    float y_val_5 = std::get<1>(positions.at(i+4));
+
+    float offset = 16.0f;
+    theta_offset = _mm256_broadcast_ss((float *)&offset);
+    theta_vec1 = _mm256_loadu_ps(temp_theta);
+    theta_vec2 = _mm256_loadu_ps(temp_theta+8);
+
+    for (int32_t theta = 0; theta < accum_width; theta += 16) {
+
+      rho_vec_set1_1 = _mm256_setzero_ps();
+      rho_vec_set1_2 = _mm256_setzero_ps();
+
+      rho_vec_set2_1 = _mm256_setzero_ps();
+      rho_vec_set2_2 = _mm256_setzero_ps();
+
+      rho_vec_set3_1 = _mm256_setzero_ps();
+      rho_vec_set3_2 = _mm256_setzero_ps();
+
+      rho_vec_set4_1 = _mm256_setzero_ps();
+      rho_vec_set4_2 = _mm256_setzero_ps();
+
+      rho_vec_set5_1 = _mm256_setzero_ps();
+      rho_vec_set5_2 = _mm256_setzero_ps();
+
+      trig_vec1 = _mm256_loadu_ps(&(cos_theta[theta]));
+      trig_vec2 = _mm256_loadu_ps(&(cos_theta[theta+8]));
+
+      x_y_1 = _mm256_broadcast_ss((float *)&x_val_1);
+      x_y_2 = _mm256_broadcast_ss((float *)&x_val_2);
+      x_y_3 = _mm256_broadcast_ss((float *)&x_val_3);
+      //x_y_4 = _mm256_broadcast_ss((float *)&x_val_4);
+      //x_y_5 = _mm256_broadcast_ss((float *)&x_val_5);
+
+      rho_vec_set1_1 = _mm256_fmadd_ps(x_y_1, trig_vec1, rho_vec_set1_1);
+      rho_vec_set1_2 = _mm256_fmadd_ps(x_y_1, trig_vec2, rho_vec_set1_2);
+
+      rho_vec_set2_1 = _mm256_fmadd_ps(x_y_2, trig_vec1, rho_vec_set2_1);
+      rho_vec_set2_2 = _mm256_fmadd_ps(x_y_2, trig_vec2, rho_vec_set2_2);
+
+      rho_vec_set3_1 = _mm256_fmadd_ps(x_y_3, trig_vec1, rho_vec_set3_1);
+      rho_vec_set3_2 = _mm256_fmadd_ps(x_y_3, trig_vec2, rho_vec_set3_2);
+
+      x_y_1 = _mm256_broadcast_ss((float *)&x_val_4);
+      rho_vec_set4_1 = _mm256_fmadd_ps(x_y_1, trig_vec1, rho_vec_set4_1);
+      rho_vec_set4_2 = _mm256_fmadd_ps(x_y_1, trig_vec2, rho_vec_set4_2);
+      //rho_vec_set3_3 = _mm256_fmadd_ps(x_y_3, trig_vec3, rho_vec_set3_3);
+      x_y_2 = _mm256_broadcast_ss((float *)&x_val_5);
+      rho_vec_set5_1 = _mm256_fmadd_ps(x_y_2, trig_vec1, rho_vec_set5_1);
+      rho_vec_set5_2 = _mm256_fmadd_ps(x_y_2, trig_vec2, rho_vec_set5_2);
+
+      // Using FMA - need at least 10 independent calls to fma
+      trig_vec1 = _mm256_loadu_ps(&(sin_theta[theta]));
+      trig_vec2 = _mm256_loadu_ps(&(sin_theta[theta+8]));
+      //trig_vec3 = _mm256_loadu_ps(&(sin_theta[theta+16]));
+
+      x_y_1 = _mm256_broadcast_ss((float *)&y_val_1);
+      x_y_2 = _mm256_broadcast_ss((float *)&y_val_2);
+      x_y_3 = _mm256_broadcast_ss((float *)&y_val_3);
+      //x_y_4 = _mm256_broadcast_ss((float *)&y_val_4);
+      //x_y_5 = _mm256_broadcast_ss((float *)&y_val_5);
+      
+      rho_vec_set1_1 = _mm256_fmadd_ps(x_y_1, trig_vec1, rho_vec_set1_1);
+      rho_vec_set1_2 = _mm256_fmadd_ps(x_y_1, trig_vec2, rho_vec_set1_2);
+
+      rho_vec_set2_1 = _mm256_fmadd_ps(x_y_2, trig_vec1, rho_vec_set2_1);
+      rho_vec_set2_2 = _mm256_fmadd_ps(x_y_2, trig_vec2, rho_vec_set2_2);
+
+      rho_vec_set3_1 = _mm256_fmadd_ps(x_y_3, trig_vec1, rho_vec_set3_1);
+      rho_vec_set3_2 = _mm256_fmadd_ps(x_y_3, trig_vec2, rho_vec_set3_2);
+
+      x_y_1 = _mm256_broadcast_ss((float *)&y_val_4);
+      rho_vec_set4_1 = _mm256_fmadd_ps(x_y_1, trig_vec1, rho_vec_set4_1);
+      rho_vec_set4_2 = _mm256_fmadd_ps(x_y_1, trig_vec2, rho_vec_set4_2);
+
+      x_y_2 = _mm256_broadcast_ss((float *)&y_val_5);
+      rho_vec_set5_1 = _mm256_fmadd_ps(x_y_2, trig_vec1, rho_vec_set5_1);
+      rho_vec_set5_2 = _mm256_fmadd_ps(x_y_2, trig_vec2, rho_vec_set5_2);
+
+      //ROUNDING THE RHO VALUES//
+      rho_vec_set1_1 = _mm256_round_ps(rho_vec_set1_1, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
+      rho_vec_set1_2 = _mm256_round_ps(rho_vec_set1_2, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
+
+      rho_vec_set2_1 = _mm256_round_ps(rho_vec_set2_1, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
+      rho_vec_set2_2 = _mm256_round_ps(rho_vec_set2_2, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
+
+      rho_vec_set3_1 = _mm256_round_ps(rho_vec_set3_1, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
+      rho_vec_set3_2 = _mm256_round_ps(rho_vec_set3_2, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
+
+      rho_vec_set4_1 = _mm256_round_ps(rho_vec_set4_1, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
+      rho_vec_set4_2 = _mm256_round_ps(rho_vec_set4_2, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
+
+      rho_vec_set5_1 = _mm256_round_ps(rho_vec_set5_1, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
+      rho_vec_set5_2 = _mm256_round_ps(rho_vec_set5_2, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
+
+      //PARTIAL INDEX COMPUTATION//
+      rho_vec_set1_1 = _mm256_add_ps(half_rho_height_v, rho_vec_set1_1);
+      rho_vec_set1_2 = _mm256_add_ps(half_rho_height_v, rho_vec_set1_2);
+
+      rho_vec_set2_1 = _mm256_add_ps(half_rho_height_v, rho_vec_set2_1);
+      rho_vec_set2_2 = _mm256_add_ps(half_rho_height_v, rho_vec_set2_2);
+
+      rho_vec_set3_1 = _mm256_add_ps(half_rho_height_v, rho_vec_set3_1);
+      rho_vec_set3_2 = _mm256_add_ps(half_rho_height_v, rho_vec_set3_2);
+
+      rho_vec_set4_1 = _mm256_add_ps(half_rho_height_v, rho_vec_set4_1);
+      rho_vec_set4_2 = _mm256_add_ps(half_rho_height_v, rho_vec_set4_2);
+
+      rho_vec_set5_1 = _mm256_add_ps(half_rho_height_v, rho_vec_set5_1);
+      rho_vec_set5_2 = _mm256_add_ps(half_rho_height_v, rho_vec_set5_2);
+      
+
+      if (theta != 0) {
+        theta_vec1 = _mm256_add_ps(theta_offset, theta_vec1);
+        theta_vec2 = _mm256_add_ps(theta_offset, theta_vec2);
+      }
+      /*
+      theta_vec1 = _mm256_set_ps(theta+7.0f, theta+6.0f, theta+5.0f, theta+4.0f,
+    			         theta+3.0f, theta+2.0f, theta+1.0f, theta+0.0f);
+      theta_vec2 = _mm256_set_ps(theta+15.0f, theta+14.0f, theta+13.0f, theta+12.0f,
+			         theta+11.0f, theta+10.0f, theta+9.0f, theta+8.0f);
+      */
+      index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set1_1, theta_vec1));
+
+      accum[_mm256_extract_epi32(index1, 0)]++;
+      accum[_mm256_extract_epi32(index1, 1)]++;
+      accum[_mm256_extract_epi32(index1, 2)]++;
+      accum[_mm256_extract_epi32(index1, 3)]++;
+      if (theta < 176) {
+        accum[_mm256_extract_epi32(index1, 4)]++;
+        accum[_mm256_extract_epi32(index1, 5)]++;
+        accum[_mm256_extract_epi32(index1, 6)]++;
+        accum[_mm256_extract_epi32(index1, 7)]++;
+
+        index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set1_2, theta_vec2));
+        accum[_mm256_extract_epi32(index1, 0)]++;
+        accum[_mm256_extract_epi32(index1, 1)]++;
+        accum[_mm256_extract_epi32(index1, 2)]++;
+        accum[_mm256_extract_epi32(index1, 3)]++;
+	accum[_mm256_extract_epi32(index1, 4)]++;
+	accum[_mm256_extract_epi32(index1, 5)]++;
+	accum[_mm256_extract_epi32(index1, 6)]++;
+	accum[_mm256_extract_epi32(index1, 7)]++;
+/*
+	index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set1_3, theta_vec3));
+	accum[_mm256_extract_epi32(index1, 0)]++;
+	accum[_mm256_extract_epi32(index1, 1)]++;
+	accum[_mm256_extract_epi32(index1, 2)]++;
+	accum[_mm256_extract_epi32(index1, 3)]++;
+	accum[_mm256_extract_epi32(index1, 4)]++;
+	accum[_mm256_extract_epi32(index1, 5)]++;
+	accum[_mm256_extract_epi32(index1, 6)]++;
+	accum[_mm256_extract_epi32(index1, 7)]++;
+*/
+      } 
+
+      index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set2_1, theta_vec1));
+
+      accum[_mm256_extract_epi32(index1, 0)]++;
+      accum[_mm256_extract_epi32(index1, 1)]++;
+      accum[_mm256_extract_epi32(index1, 2)]++;
+      accum[_mm256_extract_epi32(index1, 3)]++;
+      if (theta < 176) {
+        accum[_mm256_extract_epi32(index1, 4)]++;
+        accum[_mm256_extract_epi32(index1, 5)]++;
+        accum[_mm256_extract_epi32(index1, 6)]++;
+        accum[_mm256_extract_epi32(index1, 7)]++;
+
+        index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set2_2, theta_vec2));
+        accum[_mm256_extract_epi32(index1, 0)]++;
+        accum[_mm256_extract_epi32(index1, 1)]++;
+        accum[_mm256_extract_epi32(index1, 2)]++;
+        accum[_mm256_extract_epi32(index1, 3)]++;
+	accum[_mm256_extract_epi32(index1, 4)]++;
+	accum[_mm256_extract_epi32(index1, 5)]++;
+	accum[_mm256_extract_epi32(index1, 6)]++;
+	accum[_mm256_extract_epi32(index1, 7)]++;
+/*
+	index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set2_3, theta_vec3));
+	accum[_mm256_extract_epi32(index1, 0)]++;
+	accum[_mm256_extract_epi32(index1, 1)]++;
+	accum[_mm256_extract_epi32(index1, 2)]++;
+	accum[_mm256_extract_epi32(index1, 3)]++;
+	accum[_mm256_extract_epi32(index1, 4)]++;
+	accum[_mm256_extract_epi32(index1, 5)]++;
+	accum[_mm256_extract_epi32(index1, 6)]++;
+	accum[_mm256_extract_epi32(index1, 7)]++;
+**/
+      }       
+      
+
+      index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set3_1, theta_vec1));
+
+      accum[_mm256_extract_epi32(index1, 0)]++;
+      accum[_mm256_extract_epi32(index1, 1)]++;
+      accum[_mm256_extract_epi32(index1, 2)]++;
+      accum[_mm256_extract_epi32(index1, 3)]++;
+      if (theta < 176) {
+        accum[_mm256_extract_epi32(index1, 4)]++;
+        accum[_mm256_extract_epi32(index1, 5)]++;
+        accum[_mm256_extract_epi32(index1, 6)]++;
+        accum[_mm256_extract_epi32(index1, 7)]++;
+
+        index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set3_2, theta_vec2));
+        accum[_mm256_extract_epi32(index1, 0)]++;
+        accum[_mm256_extract_epi32(index1, 1)]++;
+        accum[_mm256_extract_epi32(index1, 2)]++;
+        accum[_mm256_extract_epi32(index1, 3)]++;
+	accum[_mm256_extract_epi32(index1, 4)]++;
+	accum[_mm256_extract_epi32(index1, 5)]++;
+	accum[_mm256_extract_epi32(index1, 6)]++;
+	accum[_mm256_extract_epi32(index1, 7)]++;
+/*
+	index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set3_3, theta_vec3));
+	accum[_mm256_extract_epi32(index1, 0)]++;
+	accum[_mm256_extract_epi32(index1, 1)]++;
+	accum[_mm256_extract_epi32(index1, 2)]++;
+	accum[_mm256_extract_epi32(index1, 3)]++;
+	accum[_mm256_extract_epi32(index1, 4)]++;
+	accum[_mm256_extract_epi32(index1, 5)]++;
+	accum[_mm256_extract_epi32(index1, 6)]++;
+	accum[_mm256_extract_epi32(index1, 7)]++;
+**/
+      } 
+      index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set4_1, theta_vec1));
+
+      accum[_mm256_extract_epi32(index1, 0)]++;
+      accum[_mm256_extract_epi32(index1, 1)]++;
+      accum[_mm256_extract_epi32(index1, 2)]++;
+      accum[_mm256_extract_epi32(index1, 3)]++;
+      if (theta < 176) {
+        accum[_mm256_extract_epi32(index1, 4)]++;
+        accum[_mm256_extract_epi32(index1, 5)]++;
+        accum[_mm256_extract_epi32(index1, 6)]++;
+        accum[_mm256_extract_epi32(index1, 7)]++;
+
+        index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set4_2, theta_vec2));
+        accum[_mm256_extract_epi32(index1, 0)]++;
+        accum[_mm256_extract_epi32(index1, 1)]++;
+        accum[_mm256_extract_epi32(index1, 2)]++;
+        accum[_mm256_extract_epi32(index1, 3)]++;
+	accum[_mm256_extract_epi32(index1, 4)]++;
+	accum[_mm256_extract_epi32(index1, 5)]++;
+	accum[_mm256_extract_epi32(index1, 6)]++;
+	accum[_mm256_extract_epi32(index1, 7)]++;
+
+      }	
+      index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set5_1, theta_vec1));
+
+      accum[_mm256_extract_epi32(index1, 0)]++;
+      accum[_mm256_extract_epi32(index1, 1)]++;
+      accum[_mm256_extract_epi32(index1, 2)]++;
+      accum[_mm256_extract_epi32(index1, 3)]++;
+      if (theta < 176) {
+        accum[_mm256_extract_epi32(index1, 4)]++;
+        accum[_mm256_extract_epi32(index1, 5)]++;
+        accum[_mm256_extract_epi32(index1, 6)]++;
+        accum[_mm256_extract_epi32(index1, 7)]++;
+
+        index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set5_2, theta_vec2));
+        accum[_mm256_extract_epi32(index1, 0)]++;
+        accum[_mm256_extract_epi32(index1, 1)]++;
+        accum[_mm256_extract_epi32(index1, 2)]++;
+        accum[_mm256_extract_epi32(index1, 3)]++;
+	accum[_mm256_extract_epi32(index1, 4)]++;
+	accum[_mm256_extract_epi32(index1, 5)]++;
+	accum[_mm256_extract_epi32(index1, 6)]++;
+	accum[_mm256_extract_epi32(index1, 7)]++;
+      }
+    }
+  } 
+  auto t1 = rdtsc();
+  std::cout << "Performance (kernel actual): " << (((w*h)*180*5)/(double)(t1 - t0)) <<std::endl;
+
 
   std::vector<std::tuple<float, float>> lines;
   std::vector<int> sort_buf;
@@ -137,11 +425,10 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
   return lines;
 }
 
-
 int main() {
     // Loads an image
     Mat dst, cdst;
-    Mat src = imread("grid.jpg", IMREAD_GRAYSCALE );
+    Mat src = imread("grid.png", IMREAD_GRAYSCALE );
 
     // Check if image is loaded fine
     if(src.empty()){
@@ -156,10 +443,12 @@ int main() {
     cvtColor(dst, cdst, COLOR_GRAY2BGR);
 
     // Standard Hough Line Transform
-    //vector<Vec2f> lines; // will hold the results of the detection
     std::vector<std::tuple<float, float>> lines;
     //HoughLines(dst, lines, 1, CV_PI/180, 150, 0, 0 ); // runs the actual detection
+    unsigned long long t1 = rdtsc();
     lines = hough_transform(dst, src.cols, src.rows, 100);
+    //lines = hough_transform(dst, 100, 100, 100);
+    unsigned long long t2 = rdtsc();
     // Draw the lines
     for( size_t i = 0; i < lines.size(); i++ )
     {
@@ -173,6 +462,9 @@ int main() {
         pt2.y = cvRound(y0 - 1000*(a));
         line(cdst, pt1, pt2, Scalar(0,0,255), 3, 16);
     }
-    imwrite("out_simd.jpg", cdst);
+    imwrite("out_simd.png", cdst);
+    std::cout << "Number of cycles (kernel): " << (t2 - t1) <<std::endl;
+    std::cout << "Performance (kernel): " << (((src.cols*src.rows)*180*4)/(double)(t2 - t1)) <<std::endl;
+
   return 0;
 }
