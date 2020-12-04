@@ -105,7 +105,7 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
 int main() {
     // Loads an image
     Mat dst, cdst;
-    Mat src = imread("grid.jpg", IMREAD_GRAYSCALE );
+    Mat src = imread("418/grid.jpg", IMREAD_GRAYSCALE );
 
     // Check if image is loaded fine
     if(src.empty()){
