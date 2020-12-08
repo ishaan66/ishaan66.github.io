@@ -4,12 +4,18 @@
 #include <iostream>
 #include <vector>
 #include <tuple>
-//#include <../opencv2-master/include/opencv2>
 #include <algorithm>
 #include <opencv2/opencv.hpp>
+#include <sys/time.h>
 
 using namespace cv;
 using namespace std;
+
+double get_time_sec() {
+  struct timeval curr_time;
+  gettimeofday(&curr_time, NULL);
+  return curr_time.tv_sec + curr_time.tv_usec / 1000000.0;
+}
 
 struct hough_cmp_gt
 {
@@ -42,7 +48,6 @@ void findLocalMaximums(int numrho, int numangle, int threshold, int *accum, std:
 
 std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h, size_t lines_max) {
   // Create the accumulator
-  //int accum_height = 2 * (int) sqrt(w*w + h*h);
   int accum_height = 2 * (w + h) + 1;
   int accum_width = 180;
   constexpr double PI = 3.14159;
@@ -52,22 +57,14 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
 
   for (int i = 0; i < h; i++) {
     for (int j = 0; j < w; j++) {
-	//if (img_data[i*w + j] != 0) {
-	if (img_data.at<uint8_t>(i,j) != 0) {
-	  for (int theta = 0; theta < accum_width; theta++) {
-	    int rho = round(j * cos(theta * (PI / 180.0f)) + i * sin(theta * (PI / 180.0f)));
-	    rho += (accum_height - 1)/2;
-/*
-	    std::cout << "rho " << rho << std::endl;
-	    std::cout << "width " << accum_width << std::endl;
-	    std::cout << "theta " << theta << std::endl;
-	    //std::cout << " FINAL: " << rho << std::endl;
-*/
-	    int index = (rho * accum_width) + theta;
-	    //std::cout << "index is " << index << std::endl;
-	    accum[index]++;
-	  }
-	}	
+      if (img_data.at<uint8_t>(i,j) != 0) {
+        for (int theta = 0; theta < accum_width; theta++) {
+          int rho = round(j * cos(theta * (PI / 180.0f)) + i * sin(theta * (PI / 180.0f)));
+          rho += (accum_height - 1)/2;
+          int index = (rho * accum_width) + theta;
+          accum[index]++;
+        }
+      }	
     }
   }
 
@@ -83,64 +80,54 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
     int index = sort_buf.at(l);
     float rho = (index/accum_width) - ((accum_height - 1) / 2);
     float theta = (index % accum_width) * (PI / 180.0f);
-    //std::cout << "rho: " << rho << ", theta: " << theta << std::endl;
     lines.push_back(std::make_tuple(rho, theta));
   }
 
-  /**
-  for (int i = 0;i < accum_height; i++) {
-    for (int j = 0; j < accum_width; j++) {
-      std::cout << accum[i * accum_width + j] << " ";
-    }
-    std::cout << "\n";
-  }
-  */
-  
-  //std::cout << "accum size is " << accum_height * accum_width  << "\n";
-  //std::cout << "Image width: " << w << " Height: " << h << " Total: " << w*h << std::endl;
   delete accum;
   return lines;
 }
 
 int main() {
-    // Loads an image
-    Mat dst, cdst;
-    Mat src = imread("418/grid.jpg", IMREAD_GRAYSCALE );
+  // Loads an image
+  Mat dst, cdst;
+  Mat src = imread("418/beach.jpg", IMREAD_GRAYSCALE );
 
-    // Check if image is loaded fine
-    if(src.empty()){
-        printf(" Error opening image\n");
-        return -1;
-    }
+  // Check if image is loaded fine
+  if(src.empty()){
+    printf(" Error opening image\n");
+    return -1;
+  }
 
-    // Edge detection
-    Canny(src, dst, 50, 200, 3);
+  // Edge detection
+  Canny(src, dst, 50, 200, 3);
 
-    // Copy edges to the images that will display the results in BGR
-    cvtColor(dst, cdst, COLOR_GRAY2BGR);
+  // Copy edges to the images that will display the results in BGR
+  cvtColor(dst, cdst, COLOR_GRAY2BGR);
 
-    // Standard Hough Line Transform
-    vector<Vec2f> cvlines; // will hold the results of the detection
-    std::vector<std::tuple<float, float>> lines;
-    HoughLines(dst, cvlines, 1, CV_PI/180, 150, 0, 0 ); // runs the actual detection
-    lines = hough_transform(dst, src.cols, src.rows, 100);
-    // Draw the lines
-    for( size_t i = 0; i < lines.size(); i++ )
-    {
-	float rho = get<0>(lines[i]), theta = get<1>(lines[i]);	
-	float crho = cvlines[i][0], ctheta = cvlines[i][1];	
-	//std::cout << "Actual R: " << crho << " T: " << ctheta << "MINE R: " << rho << " T: " << theta << std::endl;
-        Point pt1, pt2;
-        double a = cos(theta), b = sin(theta);
-        double x0 = a*rho, y0 = b*rho;
-        pt1.x = cvRound(x0 + 1000*(-b));
-        pt1.y = cvRound(y0 + 1000*(a));
-        pt2.x = cvRound(x0 - 1000*(-b));
-        pt2.y = cvRound(y0 - 1000*(a));
-        line(cdst, pt1, pt2, Scalar(0,0,255), 3, 16);
-    }
+  // Standard Hough Line Transform
+  vector<Vec2f> cvlines; // will hold the results of the detection
+  std::vector<std::tuple<float, float>> lines;
+  HoughLines(dst, cvlines, 1, CV_PI/180, 150, 0, 0 ); // runs the actual detection
 
-    imwrite("out_my_serial.jpg", cdst);
+  double t0 = get_time_sec();
+  lines = hough_transform(dst, src.cols, src.rows, 100);
+  double t1 = get_time_sec();
+  // Draw the lines
+  for(size_t i = 0; i < lines.size(); i++) {
+    float rho = get<0>(lines[i]), theta = get<1>(lines[i]);	
+    float crho = cvlines[i][0], ctheta = cvlines[i][1];	
+    Point pt1, pt2;
+    double a = cos(theta), b = sin(theta);
+    double x0 = a*rho, y0 = b*rho;
+    pt1.x = cvRound(x0 + 2000*(-b));
+    pt1.y = cvRound(y0 + 2000*(a));
+    pt2.x = cvRound(x0 - 2000*(-b));
+    pt2.y = cvRound(y0 - 2000*(a));
+    line(cdst, pt1, pt2, Scalar(0,0,255), 3, 16);
+  }
+  printf("Time: %f\n", t1 - t0);
+
+  imwrite("out_my_serial.jpg", cdst);
   return 0;
 }
 

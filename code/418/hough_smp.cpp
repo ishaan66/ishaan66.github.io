@@ -3,21 +3,30 @@
 #include <cstring>
 #include <iostream>
 #include <vector>
-#include <stdio.h>
-#define __STDC_LIMIT_MACROS
-#include <stdint.h>
-#include <inttypes.h>
 #include <tuple>
 #include <algorithm>
 #include <opencv2/opencv.hpp>
-#include <stdlib.h>
-#include <math.h>
 #include <sys/time.h>
 
 #define PI 3.14159265f
 
 using namespace cv;
 using namespace std;
+
+Mat img_data;
+size_t lines_max = 100;
+int accum_height;
+int accum_width;
+int *accum_global;
+std::vector<std::tuple<float, float>> lines;
+int *sort_buf;
+size_t buf_idx;
+int threads;
+float cos_theta[180];
+float sin_theta[180];
+float temp_theta[16] = {0.0f,1.0f,2.0f,3.0f,4.0f,5.0f,6.0f,7.0f,
+                        8.0f,9.0f,10.0f,11.0f,12.0f,13.0f,14.0f,15.0f};
+std::vector<std::tuple<float, float>> positions;
 
 double get_time_sec() {
   struct timeval curr_time;
@@ -27,50 +36,27 @@ double get_time_sec() {
 
 struct hough_cmp_gt
 {
-    hough_cmp_gt(const int32_t* _aux) : aux(_aux) {}
-    inline bool operator()(int32_t l1, int32_t l2) const
-    {
-        return aux[l1] > aux[l2] || (aux[l1] == aux[l2] && l1 < l2);
-    }
-    const int32_t* aux;
+  hough_cmp_gt(const int* _aux) : aux(_aux) {}
+  inline bool operator()(int l1, int l2) const
+  {
+    return aux[l1] > aux[l2] || (aux[l1] == aux[l2] && l1 < l2);
+  }
+  const int* aux;
 };
 
-void findLocalMaximums(int numrho, int numangle, int threshold, int32_t *accum, std::vector<int> &sort_buf, unsigned int size) {
-    for(int r = 0; r < numrho; r++ )
-        for(int n = 0; n < numangle; n++ )
-        {
-            int base_index = r * (numangle) + n;
-	    int left_index = (base_index - 1) < 0 ? -1 : base_index - 1;
-	    int right_index = (base_index + 1) > size ? -1 : base_index - 1;
-	    int up_index = (r > 0) ? (r-1) * (numangle) + n: -1;
-	    int down_index = (r < numrho - 1) ? (r+1) * (numangle) + n: -1;
-            if (accum[base_index] >= threshold &&
-                (left_index == -1 || accum[base_index] > accum[left_index]) && 
-		(right_index == -1 || accum[base_index] >= accum[right_index]) &&
-                (up_index == -1 || accum[base_index] >= accum[up_index]) && 
-		(down_index == -1 || accum[base_index] > accum[down_index])) {
-                sort_buf.push_back(base_index);
-	    }
-        }
-
+void add_to_global(int *local){
+  for (int i = 0; i < accum_height; i++) {
+    for (int j = 0; j < accum_width; j++) {
+      int index = (i * accum_width) + j;
+      accum_global[index] += local[index];
+    }
+  }
 }
 
-std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h, size_t lines_max) {
-  // Create the accumulator
-  int32_t accum_height = 2 * (w + h) + 1;
-  int32_t accum_width = 180;
-
-  int32_t accum[accum_height * accum_width];
-  memset(accum, 0, sizeof(int32_t) * accum_height * accum_width);
-
-  float cos_theta[180];
-  float sin_theta[180];
-  
-  for (int i = 0; i < 180; i++) {
-    cos_theta[i] = cos(i * PI/180.0f);
-    sin_theta[i] = sin(i * PI/180.0f);
-  }
-
+void hough_transform(int w, int h) {
+  #pragma omp parallel num_threads(threads)
+  {
+ 
   __m256 x_y_1;
   __m256 x_y_2;
   __m256 x_y_3;
@@ -104,23 +90,13 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
   __m256 half_rho_height_v = _mm256_broadcast_ss(&half_rho_height);
   __m256 accum_width_v = _mm256_broadcast_ss((float *)&accum_w);
 
-  std::vector<std::tuple<float, float>> positions;
-  for (int i = 0; i < h; i++) {
-    for (int j = 0; j < w; j++) {
-      if (img_data.at<uint8_t>(i, j) != 0) {
-        positions.push_back(std::make_tuple(i*1.0f,j*1.0f));
-      }
-    }
-  }
-
-
-  float temp_theta[16] = {0.0f,1.0f,2.0f,3.0f,4.0f,5.0f,6.0f,7.0f,
-	                  8.0f,9.0f,10.0f,11.0f,12.0f,13.0f,14.0f,15.0f};
-  
   float offset = 16.0f;
   theta_offset = _mm256_broadcast_ss((float *)&offset);
-  int i;
-  for (i = 0; i < positions.size()-4; i+=5) { // off by one error
+
+  int *accum = new int[accum_width * accum_height];
+ 
+  #pragma omp for
+  for (int i = 0; i < positions.size()-4; i+=5) { 
     float x_val_1 = std::get<0>(positions.at(i));
     float y_val_1 = std::get<1>(positions.at(i));
     
@@ -135,6 +111,9 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
 
     float x_val_5 = std::get<0>(positions.at(i+4));
     float y_val_5 = std::get<1>(positions.at(i+4));
+
+    theta_vec1 = _mm256_loadu_ps(temp_theta);
+    theta_vec2 = _mm256_loadu_ps(temp_theta+8);
 
     for (int32_t theta = 0; theta < accum_width; theta += 16) {
 
@@ -238,12 +217,7 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
         theta_vec1 = _mm256_add_ps(theta_offset, theta_vec1);
         theta_vec2 = _mm256_add_ps(theta_offset, theta_vec2);
       }
-      else {
-        theta_vec1 = _mm256_loadu_ps(temp_theta);
-        theta_vec2 = _mm256_loadu_ps(temp_theta+8);
-      }
       index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set1_1, theta_vec1));
-
       accum[_mm256_extract_epi32(index1, 0)]++;
       accum[_mm256_extract_epi32(index1, 1)]++;
       accum[_mm256_extract_epi32(index1, 2)]++;
@@ -259,7 +233,7 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
         accum[_mm256_extract_epi32(index1, 1)]++;
         accum[_mm256_extract_epi32(index1, 2)]++;
         accum[_mm256_extract_epi32(index1, 3)]++;
-	accum[_mm256_extract_epi32(index1, 4)]++;
+        accum[_mm256_extract_epi32(index1, 4)]++;
 	accum[_mm256_extract_epi32(index1, 5)]++;
 	accum[_mm256_extract_epi32(index1, 6)]++;
 	accum[_mm256_extract_epi32(index1, 7)]++;
@@ -357,8 +331,9 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
 	accum[_mm256_extract_epi32(index1, 7)]++;
       }
     }
-  } 
-  for (; i < positions.size(); i++) { // off by one error
+  }
+  #pragma omp for
+  for (int i = (positions.size() - (positions.size() % 5)); i < positions.size(); i++) { // off by one error
     float x_val_1 = std::get<0>(positions.at(i));
     float y_val_1 = std::get<1>(positions.at(i));
     theta_vec1 = _mm256_loadu_ps(temp_theta);
@@ -408,33 +383,89 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
       } 
     }
   }
-
-  std::vector<std::tuple<float, float>> lines;
-  std::vector<int> sort_buf;
+  #pragma omp critical(update)
+  add_to_global(accum);
+  }
   // find local maximums
-  findLocalMaximums(accum_height, accum_width, 2, accum, sort_buf, accum_height*accum_width);
+  int numrho = accum_height;
+  int numangle = accum_width;
+  int threshold = 2;
+  int idx;
+  //#pragma omp barrier
+  //#pragma omp for collapse(2)
+  for(int r = 0; r < numrho; r++) {
+    for(int n = 0; n < numangle; n++) {
+      int base_index = r * (numangle) + n;
+      int left_index = (base_index - 1) < 0 ? -1 : base_index - 1;
+      int right_index = (base_index + 1) > (numrho*numangle) ? -1 : base_index - 1;
+      int up_index = (r > 0) ? (r-1) * (numangle) + n: -1;
+      int down_index = (r < numrho - 1) ? (r+1) * (numangle) + n: -1;
+      if (accum_global[base_index] >= threshold &&
+        (left_index == -1 || accum_global[base_index] > accum_global[left_index]) && 
+  	(right_index == -1 || accum_global[base_index] >= accum_global[right_index]) &&
+        (up_index == -1 || accum_global[base_index] >= accum_global[up_index]) && 
+        (down_index == -1 || accum_global[base_index] > accum_global[down_index])){
+          //#pragma omp atomic capture
+          idx = buf_idx++;
+          sort_buf[idx] = base_index;
+      }
+    }
+  }
 
   // stage 3. sort the detected lines by accumulator value
-  std::sort(sort_buf.begin(), sort_buf.end(), hough_cmp_gt(accum));
+  std::sort(sort_buf, sort_buf + buf_idx, hough_cmp_gt(accum_global));
 
-  for (int l = 0; l < min(sort_buf.size(), lines_max); ++l) {
-    int index = sort_buf.at(l);
-    float rho = index/accum_width - half_rho_height;
+  for (int l = 0; l < min(buf_idx, lines_max); ++l) {
+    int index = sort_buf[l];
+    float rho = (index/accum_width) - ((accum_height - 1) / 2);
     float theta = (index % accum_width) * (PI / 180.0f);
     lines.push_back(std::make_tuple(rho, theta));
   }
+}
 
-  return lines;
+void spawn_threads(Mat dst, Mat src) {
+  img_data = dst;
+  accum_height = 2 * (src.cols + src.rows) + 1;
+  accum_width = 180;
+
+  accum_global = new int[accum_height * accum_width]();
+  //memset(accum, 0, sizeof(int) * accum_height * accum_width);
+
+  sort_buf = new int[accum_height  * accum_width]();
+  buf_idx = 0;
+
+  for (int i = 0; i < 180; i++) {
+    cos_theta[i] = cos(i * PI/180.0f);
+    sin_theta[i] = sin(i * PI/180.0f);
+  }
+  int w = src.cols;
+  int h = src.rows;
+
+  for (int i = 0; i < h; i++) {
+    for (int j = 0; j < w; j++) {
+      if (img_data.at<uint8_t>(i, j) != 0) {
+        positions.push_back(std::make_tuple(i*1.0f,j*1.0f));
+      }
+    }
+  }
+
+  hough_transform(w, h);
 }
 
 int main(int argc, char **argv) {
-  if(argc != 2) {
-    printf("Please supply the proper arguments: ./simd.0 [inputFile]\n");
-    return -1;
+  if(argc != 4) {
+      printf("Please supply the proper arguments: ./openmp.0 -p [numProcessors] [inputFile]\n");
+      return -1;
   }
+  if (strcmp(argv[1], "-p") != 0) {
+      printf("Use -p to pass in the number of processors\n");
+      return -1;
+  }
+  threads = atoi(argv[2]);
+
   // Loads an image
   Mat dst, cdst;
-  Mat src = imread(argv[1], IMREAD_GRAYSCALE );
+  Mat src = imread(argv[3], IMREAD_GRAYSCALE );
 
   // Check if image is loaded fine
   if(src.empty()){
@@ -449,14 +480,17 @@ int main(int argc, char **argv) {
   cvtColor(dst, cdst, COLOR_GRAY2BGR);
 
   // Standard Hough Line Transform
-  std::vector<std::tuple<float, float>> lines;
-    
+  vector<Vec2f> cvlines; // will hold the results of the detection
+  HoughLines(dst, cvlines, 1, CV_PI/180, 150, 0, 0); // runs the actual detection
+
   double t0 = get_time_sec();
-  lines = hough_transform(dst, src.cols, src.rows, 100);
+  spawn_threads(dst, src);
   double t1 = get_time_sec();
+ 
   // Draw the lines
-  for(size_t i = 0; i < lines.size(); i++) {
+  for( size_t i = 0; i < lines.size(); i++ ) {
     float rho = get<0>(lines[i]), theta = get<1>(lines[i]);	
+    float crho = cvlines[i][0], ctheta = cvlines[i][1];	
     Point pt1, pt2;
     double a = cos(theta), b = sin(theta);
     double x0 = a*rho, y0 = b*rho;
@@ -466,8 +500,9 @@ int main(int argc, char **argv) {
     pt2.y = cvRound(y0 - 2000*(a));
     line(cdst, pt1, pt2, Scalar(0,0,255), 3, 16);
   }
-  imwrite("out_simd.png", cdst);
-  printf("Time: %f seconds\n", (t1 - t0));
-
+  printf("Time: %f\n", t1 - t0);
+  imwrite("out_both.jpg", cdst);
   return 0;
 }
+
+
