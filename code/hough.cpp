@@ -11,15 +11,9 @@
 using namespace cv;
 using namespace std;
 
-double get_time_sec() {
-  struct timeval curr_time;
-  gettimeofday(&curr_time, NULL);
-  return curr_time.tv_sec + curr_time.tv_usec / 1000000.0;
-}
-
-struct hough_cmp_gt
+struct hough_cmp_gt_serial
 {
-    hough_cmp_gt(const int* _aux) : aux(_aux) {}
+    hough_cmp_gt_serial(const int* _aux) : aux(_aux) {}
     inline bool operator()(int l1, int l2) const
     {
         return aux[l1] > aux[l2] || (aux[l1] == aux[l2] && l1 < l2);
@@ -27,7 +21,7 @@ struct hough_cmp_gt
     const int* aux;
 };
 
-void findLocalMaximums(int numrho, int numangle, int threshold, int *accum, std::vector<int> &sort_buf, unsigned int size) {
+void findLocalMaximums_serial(int numrho, int numangle, int threshold, int *accum, std::vector<int> &sort_buf, unsigned int size) {
     for(int r = 0; r < numrho; r++ )
         for(int n = 0; n < numangle; n++ )
         {
@@ -46,12 +40,19 @@ void findLocalMaximums(int numrho, int numangle, int threshold, int *accum, std:
 
 }
 
-std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h, size_t lines_max) {
+std::vector<std::tuple<float, float>> hough_transform_serial(Mat img_data, int w, int h, size_t lines_max) {
   // Create the accumulator
   int accum_height = 2 * (w + h) + 1;
   int accum_width = 180;
   constexpr double PI = 3.14159;
 
+  float cos_theta[180];
+  float sin_theta[180];
+  
+  for (int i = 0; i < 180; i++) {
+    cos_theta[i] = cos(i * PI/180.0f);
+    sin_theta[i] = sin(i * PI/180.0f);
+  }
   int *accum = new int[accum_height * accum_width];
   memset(accum, 0, sizeof(int) * accum_height * accum_width);
 
@@ -59,7 +60,7 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
     for (int j = 0; j < w; j++) {
       if (img_data.at<uint8_t>(i,j) != 0) {
         for (int theta = 0; theta < accum_width; theta++) {
-          int rho = round(j * cos(theta * (PI / 180.0f)) + i * sin(theta * (PI / 180.0f)));
+          int rho = round((j * cos_theta[theta] + i * sin_theta[theta]));
           rho += (accum_height - 1)/2;
           int index = (rho * accum_width) + theta;
           accum[index]++;
@@ -71,10 +72,10 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
   std::vector<std::tuple<float, float>> lines;
   std::vector<int> sort_buf;
   // find local maximums
-  findLocalMaximums(accum_height, accum_width, 2, accum, sort_buf, accum_width*accum_height);
+  findLocalMaximums_serial(accum_height, accum_width, 2, accum, sort_buf, accum_width*accum_height);
 
   // stage 3. sort the detected lines by accumulator value
-  std::sort(sort_buf.begin(), sort_buf.end(), hough_cmp_gt(accum));
+  std::sort(sort_buf.begin(), sort_buf.end(), hough_cmp_gt_serial(accum));
 
   for (int l = 0; l < min(sort_buf.size(), lines_max); ++l) {
     int index = sort_buf.at(l);
@@ -87,10 +88,11 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
   return lines;
 }
 
+/*
 int main() {
   // Loads an image
   Mat dst, cdst;
-  Mat src = imread("418/beach.jpg", IMREAD_GRAYSCALE );
+  Mat src = imread("grid.jpg", IMREAD_GRAYSCALE );
 
   // Check if image is loaded fine
   if(src.empty()){
@@ -107,11 +109,8 @@ int main() {
   // Standard Hough Line Transform
   vector<Vec2f> cvlines; // will hold the results of the detection
   std::vector<std::tuple<float, float>> lines;
-  HoughLines(dst, cvlines, 1, CV_PI/180, 150, 0, 0 ); // runs the actual detection
 
-  double t0 = get_time_sec();
-  lines = hough_transform(dst, src.cols, src.rows, 100);
-  double t1 = get_time_sec();
+  lines = hough_transform_serial(dst, src.cols, src.rows, 100);
   // Draw the lines
   for(size_t i = 0; i < lines.size(); i++) {
     float rho = get<0>(lines[i]), theta = get<1>(lines[i]);	
@@ -125,10 +124,7 @@ int main() {
     pt2.y = cvRound(y0 - 2000*(a));
     line(cdst, pt1, pt2, Scalar(0,0,255), 3, 16);
   }
-  printf("Time: %f\n", t1 - t0);
-
   imwrite("out_my_serial.jpg", cdst);
   return 0;
 }
-
-
+*/

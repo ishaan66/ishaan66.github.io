@@ -17,15 +17,10 @@
 using namespace cv;
 using namespace std;
 
-double get_time_sec() {
-  struct timeval curr_time;
-  gettimeofday(&curr_time, NULL);
-  return curr_time.tv_sec + curr_time.tv_usec / 1000000.0;
-}
 
-struct hough_cmp_gt
+struct hough_cmp_gt_simd_basic
 {
-  hough_cmp_gt(const int32_t* _aux) : aux(_aux) {}
+  hough_cmp_gt_simd_basic(const int32_t* _aux) : aux(_aux) {}
   inline bool operator()(int32_t l1, int32_t l2) const
   {
     return aux[l1] > aux[l2] || (aux[l1] == aux[l2] && l1 < l2);
@@ -33,7 +28,7 @@ struct hough_cmp_gt
   const int32_t* aux;
 };
 
-void findLocalMaximums(int numrho, int numangle, int threshold, int32_t *accum, std::vector<int> &sort_buf, unsigned int size) {
+void findLocalMaximums_simd_basic(int numrho, int numangle, int threshold, int32_t *accum, std::vector<int> &sort_buf, unsigned int size) {
   for(int r = 0; r < numrho; r++) {
     for(int n = 0; n < numangle; n++) {
       int base_index = r * (numangle) + n;
@@ -52,7 +47,7 @@ void findLocalMaximums(int numrho, int numangle, int threshold, int32_t *accum, 
   }
 }
 
-std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h, size_t lines_max) {
+std::vector<std::tuple<float, float>> hough_transform_simd_basic(Mat img_data, int w, int h, size_t lines_max) {
   // Create the accumulator
   int32_t accum_height = 2 * (w + h) + 1;
   int32_t accum_width = 180;
@@ -127,10 +122,10 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
   std::vector<std::tuple<float, float>> lines;
   std::vector<int> sort_buf;
   // find local maximums
-  findLocalMaximums(accum_height, accum_width, 2, accum, sort_buf, accum_height*accum_width);
+  findLocalMaximums_simd_basic(accum_height, accum_width, 2, accum, sort_buf, accum_height*accum_width);
 
   // stage 3. sort the detected lines by accumulator value
-  std::sort(sort_buf.begin(), sort_buf.end(), hough_cmp_gt(accum));
+  std::sort(sort_buf.begin(), sort_buf.end(), hough_cmp_gt_simd_basic(accum));
 
   for (int l = 0; l < min(sort_buf.size(), lines_max); ++l) {
     int index = sort_buf.at(l);
@@ -142,6 +137,7 @@ std::vector<std::tuple<float, float>> hough_transform(Mat img_data, int w, int h
   return lines;
 }
 
+/*
 int main(int argc, char **argv) {
   if(argc != 2) {
       printf("Please supply the proper arguments: ./simd_basic.o [inputFile]\n");
@@ -153,7 +149,7 @@ int main(int argc, char **argv) {
 
   // Check if image is loaded fine
   if(src.empty()){
-    printf(" Error opening image\n");
+    printf("Error opening image\n");
     return -1;
   }
 
@@ -167,7 +163,7 @@ int main(int argc, char **argv) {
   //vector<Vec2f> lines; // will hold the results of the detection
   std::vector<std::tuple<float, float>> lines;
   double t0 = get_time_sec();
-  lines = hough_transform(dst, src.cols, src.rows, 100);
+  lines = hough_transform_simd_basic(dst, src.cols, src.rows, 100);
   double t1 = get_time_sec();
   
   // Draw the lines
@@ -186,3 +182,4 @@ int main(int argc, char **argv) {
   imwrite("out_simd_basic.jpg", cdst);
   return 0;
 }
+*/
