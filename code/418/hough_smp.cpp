@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <opencv2/opencv.hpp>
 #include <sys/time.h>
+#include <omp.h>
 
 #define PI 3.14159265f
 
@@ -18,6 +19,7 @@ size_t lines_max = 100;
 int accum_height;
 int accum_width;
 int *accum_global;
+int **local_accums;
 std::vector<std::tuple<float, float>> lines;
 int *sort_buf;
 size_t buf_idx;
@@ -93,7 +95,10 @@ void hough_transform(int w, int h) {
   float offset = 16.0f;
   theta_offset = _mm256_broadcast_ss((float *)&offset);
 
-  int *accum = new int[accum_width * accum_height];
+  
+  int tid = omp_get_thread_num();
+  //int *accum = new int[accum_width * accum_height];
+  int *accum = local_accums[tid];
  
   #pragma omp for
   for (int i = 0; i < positions.size()-4; i+=5) { 
@@ -383,8 +388,15 @@ void hough_transform(int w, int h) {
       } 
     }
   }
-  #pragma omp critical(update)
-  add_to_global(accum);
+  int range = (accum_height * accum_width + threads - 1) / threads;
+  int start = tid*range;
+  int end = std::min(start+range, accum_height*accum_width);
+  for (int i = start; i < end; i++){
+    for (int j = 0; j < threads; j++){
+      accum_global[i] += local_accums[j][i];
+    }
+  }
+
   }
   // find local maximums
   int numrho = accum_height;
@@ -430,6 +442,10 @@ void spawn_threads(Mat dst, Mat src) {
 
   accum_global = new int[accum_height * accum_width]();
   //memset(accum, 0, sizeof(int) * accum_height * accum_width);
+  local_accums = new int*[threads];
+  for (int i = 0; i < threads; i++){
+    local_accums[i] = new int[accum_height * accum_width](); 
+  }
 
   sort_buf = new int[accum_height  * accum_width]();
   buf_idx = 0;
