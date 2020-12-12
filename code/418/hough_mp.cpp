@@ -7,7 +7,8 @@
 #include <algorithm>
 #include <opencv2/opencv.hpp>
 #include <sys/time.h>
-
+#include <fstream>
+#include <string>
 #define PI 3.14159265f
 
 using namespace cv;
@@ -21,7 +22,7 @@ int *accum;
 std::vector<std::tuple<float, float>> lines;
 int *sort_buf;
 size_t buf_idx;
-int threads;
+//int threads;
 float cos_theta[180];
 float sin_theta[180];  
 
@@ -31,9 +32,9 @@ double get_time_sec() {
   return curr_time.tv_sec + curr_time.tv_usec / 1000000.0;
 }
 
-struct hough_cmp_gt
+struct hough_cmp_gt_mp
 {
-  hough_cmp_gt(const int* _aux) : aux(_aux) {}
+  hough_cmp_gt_mp(const int* _aux) : aux(_aux) {}
   inline bool operator()(int l1, int l2) const
   {
     return aux[l1] > aux[l2] || (aux[l1] == aux[l2] && l1 < l2);
@@ -41,7 +42,7 @@ struct hough_cmp_gt
   const int* aux;
 };
 
-void hough_transform(int w, int h) {
+void hough_transform_mp(int w, int h, int threads) {
   #pragma omp parallel num_threads(threads)
   {
 
@@ -94,7 +95,7 @@ void hough_transform(int w, int h) {
 
   }
   // stage 3. sort the detected lines by accumulator value
-  std::sort(sort_buf, sort_buf + buf_idx, hough_cmp_gt(accum));
+  std::sort(sort_buf, sort_buf + buf_idx, hough_cmp_gt_mp(accum));
 
   for (int l = 0; l < min(buf_idx, lines_max); ++l) {
     int index = sort_buf[l];
@@ -104,7 +105,7 @@ void hough_transform(int w, int h) {
   }
 }
 
-void spawn_threads(Mat dst, Mat src) {
+void spawn_threads_mp(Mat dst, Mat src, int threads) {
   img_data = dst;
   accum_height = 2 * (src.cols + src.rows) + 1;
   accum_width = 180;
@@ -117,7 +118,7 @@ void spawn_threads(Mat dst, Mat src) {
 
   int w = src.cols;
   int h = src.rows;
-  hough_transform(w, h);
+  hough_transform_mp(w, h, threads);
 }
 
 int main(int argc, char **argv) {
@@ -130,11 +131,12 @@ int main(int argc, char **argv) {
       printf("Use -p to pass in the number of processors\n");
       return -1;
   }
-  threads = atoi(argv[2]);
+  int threads = atoi(argv[2]);
 
   // Loads an image
   Mat dst, cdst;
   Mat src = imread(argv[3], IMREAD_GRAYSCALE );
+  std::vector<std::tuple<float, float>> data;
 
   // Check if image is loaded fine
   if(src.empty()){
@@ -147,16 +149,30 @@ int main(int argc, char **argv) {
 
   // Copy edges to the images that will display the results in BGR
   cvtColor(dst, cdst, COLOR_GRAY2BGR);
+ 
+  int rows = 2520;
+  int cols = 2520;
+  std::cout << "HEREEE" << std::endl;
+  dst = Mat(rows,cols, CV_64F, double(1));
+  std::cout << "HEREEE" << std::endl;
 
   // Standard Hough Line Transform
-  vector<Vec2f> cvlines; // will hold the results of the detection
-  HoughLines(dst, cvlines, 1, CV_PI/180, 150, 0, 0); // runs the actual detection
 
-  double t0 = get_time_sec();
-  spawn_threads(dst, src);
-  double t1 = get_time_sec();
+  for (int t = 1; t <= 28; t++) {
+    std::cout << "iter: " << t << std::endl;
+    double t0 = get_time_sec();
+    spawn_threads_mp(dst, dst, t);
+    spawn_threads_mp(dst, dst, t);
+    spawn_threads_mp(dst, dst, t);
+    spawn_threads_mp(dst, dst, t);
+    spawn_threads_mp(dst, dst, t);
+    double t1 = get_time_sec();
+    std::cout << " time: " << (t1-t0)/5 << std::endl;
+    data.push_back(std::make_tuple(t, (t1 - t0)/5));
+  }
  
   // Draw the lines
+  /*
   for( size_t i = 0; i < lines.size(); i++ ) {
     float rho = get<0>(lines[i]), theta = get<1>(lines[i]);	
     float crho = cvlines[i][0], ctheta = cvlines[i][1];	
@@ -171,6 +187,22 @@ int main(int argc, char **argv) {
   }
   printf("Time: %f\n", t1 - t0);
   imwrite("out_openmp.jpg", cdst);
+  */
+  std::string outfile = "execution_time_mp.csv";
+  std::ofstream myfile(outfile);
+
+  if (myfile.fail()) {
+    cerr << "Error opening file\n" << std::endl;
+	return -1;
+  }
+
+  for (std::tuple<float, float> tup: data) {
+    float size = get<0>(tup);
+    float cycles = get<1>(tup);
+    myfile << size << ", " << cycles << std::endl;
+  }
+  myfile.close();
+
   return 0;
 }
 

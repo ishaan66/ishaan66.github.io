@@ -8,6 +8,8 @@
 #include <opencv2/opencv.hpp>
 #include <sys/time.h>
 #include <omp.h>
+#include <fstream>
+#include <string>
 
 #define PI 3.14159265f
 
@@ -19,7 +21,7 @@ size_t lines_max = 100;
 int accum_height;
 int accum_width;
 int *accum_global;
-int **local_accums;
+//int **local_accums;
 std::vector<std::tuple<float, float>> lines;
 int *sort_buf;
 size_t buf_idx;
@@ -55,37 +57,22 @@ void add_to_global(int *local){
   }
 }
 
-void hough_transform(int w, int h) {
+void hough_transform(int w, int h, int threads) {
   #pragma omp parallel num_threads(threads)
   {
  
-  __m256 x_y_1;
-  __m256 x_y_2;
-  __m256 x_y_3;
+  __m256 x;
+  __m256 y;
 
-  __m256 rho_vec_set1_1;
-  __m256 rho_vec_set1_2;
-
-  __m256 rho_vec_set2_1;
-  __m256 rho_vec_set2_2;
-
-  __m256 rho_vec_set3_1;
-  __m256 rho_vec_set3_2;
-
-  __m256 rho_vec_set4_1;
-  __m256 rho_vec_set4_2;
-
-  __m256 rho_vec_set5_1;
-  __m256 rho_vec_set5_2;
-
-  __m256 trig_vec1;
-  __m256 trig_vec2;
-
+  __m256 rho_vec;
+  __m256 cos_vec1;
+  __m256 sin_vec1;
   __m256 theta_vec1;
-  __m256 theta_vec2;
-
-  __m256i index1;
+  __m256 rho_floor;
   __m256 theta_offset;
+
+  __m256i index;
+  __m256i values;
 
   float half_rho_height = (accum_height-1)/2;
   float accum_w = accum_width * 1.0f;
@@ -93,301 +80,51 @@ void hough_transform(int w, int h) {
   __m256 accum_width_v = _mm256_broadcast_ss((float *)&accum_w);
 
   float offset = 16.0f;
+  float temp[8] = {0.0f, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f};
   theta_offset = _mm256_broadcast_ss((float *)&offset);
-
   
-  int tid = omp_get_thread_num();
-  //int *accum = new int[accum_width * accum_height];
-  int *accum = local_accums[tid];
+  //int tid = omp_get_thread_num();
+  int *accum = new int[accum_width * accum_height];
+  //int *accum = local_accums[tid];
  
-  #pragma omp for
-  for (int i = 0; i < positions.size()-4; i+=5) { 
-    float x_val_1 = std::get<0>(positions.at(i));
-    float y_val_1 = std::get<1>(positions.at(i));
-    
-    float x_val_2 = std::get<0>(positions.at(i+1));
-    float y_val_2 = std::get<1>(positions.at(i+1));
-    
-    float x_val_3 = std::get<0>(positions.at(i+2));
-    float y_val_3 = std::get<1>(positions.at(i+2));
-    
-    float x_val_4 = std::get<0>(positions.at(i+3));
-    float y_val_4 = std::get<1>(positions.at(i+3));
+  #pragma omp for collapse (2)
+  for (int i = 0; i < h; i++) {
+    for (int j = 0; j < w; j++) {
+      if (img_data.at<uint8_t>(i, j) != 0) {
 
-    float x_val_5 = std::get<0>(positions.at(i+4));
-    float y_val_5 = std::get<1>(positions.at(i+4));
+        float x_val = j*1.0f;
+        float y_val = i*1.0f;
+        x = _mm256_broadcast_ss((float *)&x_val);
+        y = _mm256_broadcast_ss((float *)&y_val);
 
-    theta_vec1 = _mm256_loadu_ps(temp_theta);
-    theta_vec2 = _mm256_loadu_ps(temp_theta+8);
+        theta_vec1 = _mm256_loadu_ps(temp);
 
-    for (int32_t theta = 0; theta < accum_width; theta += 16) {
+        for (int32_t theta = 0; theta < accum_width; theta += 8) {
+          rho_vec = _mm256_setzero_ps();
+          cos_vec1 = _mm256_loadu_ps(&(cos_theta[theta]));
+          sin_vec1 = _mm256_loadu_ps(&(sin_theta[theta]));
+          theta_vec1 = _mm256_add_ps(theta_offset, theta_vec1);
+          rho_vec = _mm256_fmadd_ps(x, cos_vec1, rho_vec);
+          rho_vec = _mm256_fmadd_ps(y, sin_vec1, rho_vec);
 
-      rho_vec_set1_1 = _mm256_setzero_ps();
-      rho_vec_set1_2 = _mm256_setzero_ps();
-
-      rho_vec_set2_1 = _mm256_setzero_ps();
-      rho_vec_set2_2 = _mm256_setzero_ps();
-
-      rho_vec_set3_1 = _mm256_setzero_ps();
-      rho_vec_set3_2 = _mm256_setzero_ps();
-
-      rho_vec_set4_1 = _mm256_setzero_ps();
-      rho_vec_set4_2 = _mm256_setzero_ps();
-
-      rho_vec_set5_1 = _mm256_setzero_ps();
-      rho_vec_set5_2 = _mm256_setzero_ps();
-
-      trig_vec1 = _mm256_loadu_ps(&(cos_theta[theta]));
-      trig_vec2 = _mm256_loadu_ps(&(cos_theta[theta+8]));
-
-      x_y_1 = _mm256_broadcast_ss((float *)&x_val_1);
-      x_y_2 = _mm256_broadcast_ss((float *)&x_val_2);
-      x_y_3 = _mm256_broadcast_ss((float *)&x_val_3);
-
-      rho_vec_set1_1 = _mm256_fmadd_ps(x_y_1, trig_vec1, rho_vec_set1_1);
-      rho_vec_set1_2 = _mm256_fmadd_ps(x_y_1, trig_vec2, rho_vec_set1_2);
-
-      rho_vec_set2_1 = _mm256_fmadd_ps(x_y_2, trig_vec1, rho_vec_set2_1);
-      rho_vec_set2_2 = _mm256_fmadd_ps(x_y_2, trig_vec2, rho_vec_set2_2);
-
-      rho_vec_set3_1 = _mm256_fmadd_ps(x_y_3, trig_vec1, rho_vec_set3_1);
-      rho_vec_set3_2 = _mm256_fmadd_ps(x_y_3, trig_vec2, rho_vec_set3_2);
-
-      x_y_1 = _mm256_broadcast_ss((float *)&x_val_4);
-      rho_vec_set4_1 = _mm256_fmadd_ps(x_y_1, trig_vec1, rho_vec_set4_1);
-      rho_vec_set4_2 = _mm256_fmadd_ps(x_y_1, trig_vec2, rho_vec_set4_2);
-      x_y_2 = _mm256_broadcast_ss((float *)&x_val_5);
-      rho_vec_set5_1 = _mm256_fmadd_ps(x_y_2, trig_vec1, rho_vec_set5_1);
-      rho_vec_set5_2 = _mm256_fmadd_ps(x_y_2, trig_vec2, rho_vec_set5_2);
-
-      // Using FMA - need at least 10 independent calls to fma
-      trig_vec1 = _mm256_loadu_ps(&(sin_theta[theta]));
-      trig_vec2 = _mm256_loadu_ps(&(sin_theta[theta+8]));
-
-      x_y_1 = _mm256_broadcast_ss((float *)&y_val_1);
-      x_y_2 = _mm256_broadcast_ss((float *)&y_val_2);
-      x_y_3 = _mm256_broadcast_ss((float *)&y_val_3);
-      
-      rho_vec_set1_1 = _mm256_fmadd_ps(x_y_1, trig_vec1, rho_vec_set1_1);
-      rho_vec_set1_2 = _mm256_fmadd_ps(x_y_1, trig_vec2, rho_vec_set1_2);
-
-      rho_vec_set2_1 = _mm256_fmadd_ps(x_y_2, trig_vec1, rho_vec_set2_1);
-      rho_vec_set2_2 = _mm256_fmadd_ps(x_y_2, trig_vec2, rho_vec_set2_2);
-
-      rho_vec_set3_1 = _mm256_fmadd_ps(x_y_3, trig_vec1, rho_vec_set3_1);
-      rho_vec_set3_2 = _mm256_fmadd_ps(x_y_3, trig_vec2, rho_vec_set3_2);
-
-      x_y_1 = _mm256_broadcast_ss((float *)&y_val_4);
-      rho_vec_set4_1 = _mm256_fmadd_ps(x_y_1, trig_vec1, rho_vec_set4_1);
-      rho_vec_set4_2 = _mm256_fmadd_ps(x_y_1, trig_vec2, rho_vec_set4_2);
-
-      x_y_2 = _mm256_broadcast_ss((float *)&y_val_5);
-      rho_vec_set5_1 = _mm256_fmadd_ps(x_y_2, trig_vec1, rho_vec_set5_1);
-      rho_vec_set5_2 = _mm256_fmadd_ps(x_y_2, trig_vec2, rho_vec_set5_2);
-
-      //ROUNDING THE RHO VALUES//
-      rho_vec_set1_1 = _mm256_round_ps(rho_vec_set1_1, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
-      rho_vec_set1_2 = _mm256_round_ps(rho_vec_set1_2, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
-
-      rho_vec_set2_1 = _mm256_round_ps(rho_vec_set2_1, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
-      rho_vec_set2_2 = _mm256_round_ps(rho_vec_set2_2, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
-
-      rho_vec_set3_1 = _mm256_round_ps(rho_vec_set3_1, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
-      rho_vec_set3_2 = _mm256_round_ps(rho_vec_set3_2, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
-
-      rho_vec_set4_1 = _mm256_round_ps(rho_vec_set4_1, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
-      rho_vec_set4_2 = _mm256_round_ps(rho_vec_set4_2, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
-
-      rho_vec_set5_1 = _mm256_round_ps(rho_vec_set5_1, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
-      rho_vec_set5_2 = _mm256_round_ps(rho_vec_set5_2, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
-
-      //PARTIAL INDEX COMPUTATION//
-      rho_vec_set1_1 = _mm256_add_ps(half_rho_height_v, rho_vec_set1_1);
-      rho_vec_set1_2 = _mm256_add_ps(half_rho_height_v, rho_vec_set1_2);
-
-      rho_vec_set2_1 = _mm256_add_ps(half_rho_height_v, rho_vec_set2_1);
-      rho_vec_set2_2 = _mm256_add_ps(half_rho_height_v, rho_vec_set2_2);
-
-      rho_vec_set3_1 = _mm256_add_ps(half_rho_height_v, rho_vec_set3_1);
-      rho_vec_set3_2 = _mm256_add_ps(half_rho_height_v, rho_vec_set3_2);
-
-      rho_vec_set4_1 = _mm256_add_ps(half_rho_height_v, rho_vec_set4_1);
-      rho_vec_set4_2 = _mm256_add_ps(half_rho_height_v, rho_vec_set4_2);
-
-      rho_vec_set5_1 = _mm256_add_ps(half_rho_height_v, rho_vec_set5_1);
-      rho_vec_set5_2 = _mm256_add_ps(half_rho_height_v, rho_vec_set5_2);
-      
-
-      if (theta != 0) {
-        theta_vec1 = _mm256_add_ps(theta_offset, theta_vec1);
-        theta_vec2 = _mm256_add_ps(theta_offset, theta_vec2);
-      }
-      index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set1_1, theta_vec1));
-      accum[_mm256_extract_epi32(index1, 0)]++;
-      accum[_mm256_extract_epi32(index1, 1)]++;
-      accum[_mm256_extract_epi32(index1, 2)]++;
-      accum[_mm256_extract_epi32(index1, 3)]++;
-      if (theta < 176) {
-        accum[_mm256_extract_epi32(index1, 4)]++;
-        accum[_mm256_extract_epi32(index1, 5)]++;
-        accum[_mm256_extract_epi32(index1, 6)]++;
-        accum[_mm256_extract_epi32(index1, 7)]++;
-
-        index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set1_2, theta_vec2));
-        accum[_mm256_extract_epi32(index1, 0)]++;
-        accum[_mm256_extract_epi32(index1, 1)]++;
-        accum[_mm256_extract_epi32(index1, 2)]++;
-        accum[_mm256_extract_epi32(index1, 3)]++;
-        accum[_mm256_extract_epi32(index1, 4)]++;
-	accum[_mm256_extract_epi32(index1, 5)]++;
-	accum[_mm256_extract_epi32(index1, 6)]++;
-	accum[_mm256_extract_epi32(index1, 7)]++;
-      } 
-
-      index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set2_1, theta_vec1));
-
-      accum[_mm256_extract_epi32(index1, 0)]++;
-      accum[_mm256_extract_epi32(index1, 1)]++;
-      accum[_mm256_extract_epi32(index1, 2)]++;
-      accum[_mm256_extract_epi32(index1, 3)]++;
-      if (theta < 176) {
-        accum[_mm256_extract_epi32(index1, 4)]++;
-        accum[_mm256_extract_epi32(index1, 5)]++;
-        accum[_mm256_extract_epi32(index1, 6)]++;
-        accum[_mm256_extract_epi32(index1, 7)]++;
-
-        index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set2_2, theta_vec2));
-        accum[_mm256_extract_epi32(index1, 0)]++;
-        accum[_mm256_extract_epi32(index1, 1)]++;
-        accum[_mm256_extract_epi32(index1, 2)]++;
-        accum[_mm256_extract_epi32(index1, 3)]++;
-	accum[_mm256_extract_epi32(index1, 4)]++;
-	accum[_mm256_extract_epi32(index1, 5)]++;
-	accum[_mm256_extract_epi32(index1, 6)]++;
-	accum[_mm256_extract_epi32(index1, 7)]++;
-      }       
-      
-
-      index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set3_1, theta_vec1));
-
-      accum[_mm256_extract_epi32(index1, 0)]++;
-      accum[_mm256_extract_epi32(index1, 1)]++;
-      accum[_mm256_extract_epi32(index1, 2)]++;
-      accum[_mm256_extract_epi32(index1, 3)]++;
-      if (theta < 176) {
-        accum[_mm256_extract_epi32(index1, 4)]++;
-        accum[_mm256_extract_epi32(index1, 5)]++;
-        accum[_mm256_extract_epi32(index1, 6)]++;
-        accum[_mm256_extract_epi32(index1, 7)]++;
-
-        index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set3_2, theta_vec2));
-        accum[_mm256_extract_epi32(index1, 0)]++;
-        accum[_mm256_extract_epi32(index1, 1)]++;
-        accum[_mm256_extract_epi32(index1, 2)]++;
-        accum[_mm256_extract_epi32(index1, 3)]++;
-	accum[_mm256_extract_epi32(index1, 4)]++;
-	accum[_mm256_extract_epi32(index1, 5)]++;
-	accum[_mm256_extract_epi32(index1, 6)]++;
-	accum[_mm256_extract_epi32(index1, 7)]++;
-      } 
-      index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set4_1, theta_vec1));
-
-      accum[_mm256_extract_epi32(index1, 0)]++;
-      accum[_mm256_extract_epi32(index1, 1)]++;
-      accum[_mm256_extract_epi32(index1, 2)]++;
-      accum[_mm256_extract_epi32(index1, 3)]++;
-      if (theta < 176) {
-        accum[_mm256_extract_epi32(index1, 4)]++;
-        accum[_mm256_extract_epi32(index1, 5)]++;
-        accum[_mm256_extract_epi32(index1, 6)]++;
-        accum[_mm256_extract_epi32(index1, 7)]++;
-
-        index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set4_2, theta_vec2));
-        accum[_mm256_extract_epi32(index1, 0)]++;
-        accum[_mm256_extract_epi32(index1, 1)]++;
-        accum[_mm256_extract_epi32(index1, 2)]++;
-        accum[_mm256_extract_epi32(index1, 3)]++;
-	accum[_mm256_extract_epi32(index1, 4)]++;
-	accum[_mm256_extract_epi32(index1, 5)]++;
-	accum[_mm256_extract_epi32(index1, 6)]++;
-	accum[_mm256_extract_epi32(index1, 7)]++;
-
+          rho_floor = _mm256_round_ps(rho_vec, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
+          rho_floor = _mm256_add_ps(half_rho_height_v, rho_floor);
+          index = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_floor, theta_vec1));
+	  accum[_mm256_extract_epi32(index, 0)]++;
+	  accum[_mm256_extract_epi32(index, 1)]++;
+	  accum[_mm256_extract_epi32(index, 2)]++;
+	  accum[_mm256_extract_epi32(index, 3)]++;
+          if (theta >= 176) break;
+          accum[_mm256_extract_epi32(index, 4)]++;
+          accum[_mm256_extract_epi32(index, 5)]++;
+          accum[_mm256_extract_epi32(index, 6)]++;
+	  accum[_mm256_extract_epi32(index, 7)]++;
+	}
       }	
-      index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set5_1, theta_vec1));
-
-      accum[_mm256_extract_epi32(index1, 0)]++;
-      accum[_mm256_extract_epi32(index1, 1)]++;
-      accum[_mm256_extract_epi32(index1, 2)]++;
-      accum[_mm256_extract_epi32(index1, 3)]++;
-      if (theta < 176) {
-        accum[_mm256_extract_epi32(index1, 4)]++;
-        accum[_mm256_extract_epi32(index1, 5)]++;
-        accum[_mm256_extract_epi32(index1, 6)]++;
-        accum[_mm256_extract_epi32(index1, 7)]++;
-
-        index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set5_2, theta_vec2));
-        accum[_mm256_extract_epi32(index1, 0)]++;
-        accum[_mm256_extract_epi32(index1, 1)]++;
-        accum[_mm256_extract_epi32(index1, 2)]++;
-        accum[_mm256_extract_epi32(index1, 3)]++;
-	accum[_mm256_extract_epi32(index1, 4)]++;
-	accum[_mm256_extract_epi32(index1, 5)]++;
-	accum[_mm256_extract_epi32(index1, 6)]++;
-	accum[_mm256_extract_epi32(index1, 7)]++;
-      }
     }
   }
-  #pragma omp for
-  for (int i = (positions.size() - (positions.size() % 5)); i < positions.size(); i++) { // off by one error
-    float x_val_1 = std::get<0>(positions.at(i));
-    float y_val_1 = std::get<1>(positions.at(i));
-    theta_vec1 = _mm256_loadu_ps(temp_theta);
-    theta_vec2 = _mm256_loadu_ps(temp_theta+8);
-    for (int32_t theta = 0; theta < accum_width; theta += 16) {
-      rho_vec_set1_1 = _mm256_setzero_ps();
-      rho_vec_set1_2 = _mm256_setzero_ps();
-      trig_vec1 = _mm256_loadu_ps(&(cos_theta[theta]));
-      trig_vec2 = _mm256_loadu_ps(&(cos_theta[theta+8]));
 
-      x_y_1 = _mm256_broadcast_ss((float *)&x_val_1);
-
-      rho_vec_set1_1 = _mm256_fmadd_ps(x_y_1, trig_vec1, rho_vec_set1_1);
-      rho_vec_set1_2 = _mm256_fmadd_ps(x_y_1, trig_vec2, rho_vec_set1_2);
-
-      rho_vec_set1_1 = _mm256_round_ps(rho_vec_set1_1, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
-      rho_vec_set1_2 = _mm256_round_ps(rho_vec_set1_2, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
-
-      rho_vec_set1_1 = _mm256_add_ps(half_rho_height_v, rho_vec_set1_1);
-      rho_vec_set1_2 = _mm256_add_ps(half_rho_height_v, rho_vec_set1_2);
-
-      if (theta != 0) {
-        theta_vec1 = _mm256_add_ps(theta_offset, theta_vec1);
-        theta_vec2 = _mm256_add_ps(theta_offset, theta_vec2);
-      }
-      index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set1_1, theta_vec1));
-
-      accum[_mm256_extract_epi32(index1, 0)]++;
-      accum[_mm256_extract_epi32(index1, 1)]++;
-      accum[_mm256_extract_epi32(index1, 2)]++;
-      accum[_mm256_extract_epi32(index1, 3)]++;
-      if (theta < 176) {
-        accum[_mm256_extract_epi32(index1, 4)]++;
-        accum[_mm256_extract_epi32(index1, 5)]++;
-        accum[_mm256_extract_epi32(index1, 6)]++;
-        accum[_mm256_extract_epi32(index1, 7)]++;
-
-        index1 = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec_set1_2, theta_vec2));
-        accum[_mm256_extract_epi32(index1, 0)]++;
-        accum[_mm256_extract_epi32(index1, 1)]++;
-        accum[_mm256_extract_epi32(index1, 2)]++;
-        accum[_mm256_extract_epi32(index1, 3)]++;
-	accum[_mm256_extract_epi32(index1, 4)]++;
-	accum[_mm256_extract_epi32(index1, 5)]++;
-	accum[_mm256_extract_epi32(index1, 6)]++;
-	accum[_mm256_extract_epi32(index1, 7)]++;
-      } 
-    }
-  }
+/*
   int range = (accum_height * accum_width + threads - 1) / threads;
   int start = tid*range;
   int end = std::min(start+range, accum_height*accum_width);
@@ -396,7 +133,9 @@ void hough_transform(int w, int h) {
       accum_global[i] += local_accums[j][i];
     }
   }
-
+*/
+  #pragma omp critical (update)
+  add_to_global(accum);
   }
   // find local maximums
   int numrho = accum_height;
@@ -435,18 +174,19 @@ void hough_transform(int w, int h) {
   }
 }
 
-void spawn_threads(Mat dst, Mat src) {
+void spawn_threads(Mat dst, Mat src, int threads) {
   img_data = dst;
   accum_height = 2 * (src.cols + src.rows) + 1;
   accum_width = 180;
 
   accum_global = new int[accum_height * accum_width]();
   //memset(accum, 0, sizeof(int) * accum_height * accum_width);
+  /*
   local_accums = new int*[threads];
   for (int i = 0; i < threads; i++){
     local_accums[i] = new int[accum_height * accum_width](); 
   }
-
+*/
   sort_buf = new int[accum_height  * accum_width]();
   buf_idx = 0;
 
@@ -465,7 +205,7 @@ void spawn_threads(Mat dst, Mat src) {
     }
   }
 
-  hough_transform(w, h);
+  hough_transform(w, h, threads);
 }
 
 int main(int argc, char **argv) {
@@ -496,14 +236,25 @@ int main(int argc, char **argv) {
   cvtColor(dst, cdst, COLOR_GRAY2BGR);
 
   // Standard Hough Line Transform
-  vector<Vec2f> cvlines; // will hold the results of the detection
-  HoughLines(dst, cvlines, 1, CV_PI/180, 150, 0, 0); // runs the actual detection
-
-  double t0 = get_time_sec();
-  spawn_threads(dst, src);
-  double t1 = get_time_sec();
+  //vector<Vec2f> cvlines; // will hold the results of the detection
+  //HoughLines(dst, cvlines, 1, CV_PI/180, 150, 0, 0); // runs the actual detection
+  std::vector<std::tuple<float, float>> data;
+  dst = Mat(2520,2520, CV_64F, double(1));
+  for (int i = 1; i <= 28; i++) {
+    std::cout << "iter: " << i << std::endl;
+    double t0 = get_time_sec();
+    spawn_threads(dst, dst, i);
+    spawn_threads(dst, dst, i);
+    spawn_threads(dst, dst, i);
+    spawn_threads(dst, dst, i);
+    spawn_threads(dst, dst, i);
+    double t1 = get_time_sec();
+    std::cout << " time: " << (t1-t0)/5 << std::endl;
+    data.push_back(std::make_tuple(i, (t1 - t0)/5));
+  }
  
   // Draw the lines
+  /*
   for( size_t i = 0; i < lines.size(); i++ ) {
     float rho = get<0>(lines[i]), theta = get<1>(lines[i]);	
     float crho = cvlines[i][0], ctheta = cvlines[i][1];	
@@ -518,6 +269,23 @@ int main(int argc, char **argv) {
   }
   printf("Time: %f\n", t1 - t0);
   imwrite("out_both.jpg", cdst);
+*/
+  std::string outfile = "execution_time_simd_mp.csv";
+  std::ofstream myfile(outfile);
+
+  if (myfile.fail()) {
+    cerr << "Error opening file\n" << std::endl;
+	return -1;
+  }
+
+  for (std::tuple<float, float> tup: data) {
+    float size = get<0>(tup);
+    float cycles = get<1>(tup);
+    myfile << size << ", " << cycles << std::endl;
+  }
+  myfile.close();
+
+
   return 0;
 }
 
