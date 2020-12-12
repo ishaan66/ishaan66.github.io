@@ -19,10 +19,10 @@ size_t lines_max = 100;
 int accum_height;
 int accum_width;
 int *accum;
-std::vector<std::tuple<float, float>> lines;
 int *sort_buf;
 size_t buf_idx;
-//int threads;
+int threads;
+float half_rho_height;
 float cos_theta[180];
 float sin_theta[180];  
 
@@ -32,9 +32,9 @@ double get_time_sec() {
   return curr_time.tv_sec + curr_time.tv_usec / 1000000.0;
 }
 
-struct hough_cmp_gt_mp
+struct hough_cmp_gt
 {
-  hough_cmp_gt_mp(const int* _aux) : aux(_aux) {}
+  hough_cmp_gt(const int* _aux) : aux(_aux) {}
   inline bool operator()(int l1, int l2) const
   {
     return aux[l1] > aux[l2] || (aux[l1] == aux[l2] && l1 < l2);
@@ -42,15 +42,9 @@ struct hough_cmp_gt_mp
   const int* aux;
 };
 
-void hough_transform_mp(int w, int h, int threads) {
+std::vector<std::tuple<float, float>> hough_transform(int w, int h) {
   #pragma omp parallel num_threads(threads)
   {
-
-  #pragma omp for
-  for (int i = 0; i < 180; i++) {
-    cos_theta[i] = cos(i * PI/180.0f);
-    sin_theta[i] = sin(i * PI/180.0f);
-  }
 
   #pragma omp for collapse(2)
   for (int i = 0; i < h; i++) {
@@ -66,7 +60,6 @@ void hough_transform_mp(int w, int h, int threads) {
       }	
     }
   }
-
   // find local maximums
   int numrho = accum_height;
   int numangle = accum_width;
@@ -86,16 +79,17 @@ void hough_transform_mp(int w, int h, int threads) {
   	(right_index == -1 || accum[base_index] >= accum[right_index]) &&
         (up_index == -1 || accum[base_index] >= accum[up_index]) && 
         (down_index == -1 || accum[base_index] > accum[down_index])){
-          #pragma omp atomic capture
-          idx = buf_idx++;
-          sort_buf[idx] = base_index;
+        #pragma omp atomic capture
+        idx = buf_idx++;
+        sort_buf[idx] = base_index;
       }
     }
   }
 
   }
   // stage 3. sort the detected lines by accumulator value
-  std::sort(sort_buf, sort_buf + buf_idx, hough_cmp_gt_mp(accum));
+  std::sort(sort_buf, sort_buf + buf_idx, hough_cmp_gt(accum));
+  std::vector<std::tuple<float, float>> lines;
 
   for (int l = 0; l < min(buf_idx, lines_max); ++l) {
     int index = sort_buf[l];
@@ -103,22 +97,26 @@ void hough_transform_mp(int w, int h, int threads) {
     float theta = (index % accum_width) * (PI / 180.0f);
     lines.push_back(std::make_tuple(rho, theta));
   }
+  return lines;
 }
 
-void spawn_threads_mp(Mat dst, Mat src, int threads) {
+std::vector<std::tuple<float, float>> spawn_threads(Mat dst, Mat src) {
   img_data = dst;
   accum_height = 2 * (src.cols + src.rows) + 1;
   accum_width = 180;
 
   accum = new int[accum_height * accum_width]();
-  //memset(accum, 0, sizeof(int) * accum_height * accum_width);
-
   sort_buf = new int[accum_height  * accum_width]();
   buf_idx = 0;
+  half_rho_height = (accum_height-1)/2;
 
+  for (int i = 0; i < 180; i++) {
+    cos_theta[i] = cos(i * PI/180.0f);
+    sin_theta[i] = sin(i * PI/180.0f);
+  }
   int w = src.cols;
   int h = src.rows;
-  hough_transform_mp(w, h, threads);
+  return hough_transform(w, h);
 }
 
 int main(int argc, char **argv) {
@@ -131,7 +129,7 @@ int main(int argc, char **argv) {
       printf("Use -p to pass in the number of processors\n");
       return -1;
   }
-  int threads = atoi(argv[2]);
+  threads = atoi(argv[2]);
 
   // Loads an image
   Mat dst, cdst;
@@ -152,30 +150,28 @@ int main(int argc, char **argv) {
  
   int rows = 2520;
   int cols = 2520;
-  std::cout << "HEREEE" << std::endl;
   dst = Mat(rows,cols, CV_64F, double(1));
-  std::cout << "HEREEE" << std::endl;
+  std::vector<std::tuple<float, float>> lines;
 
   // Standard Hough Line Transform
 
   for (int t = 1; t <= 28; t++) {
     std::cout << "iter: " << t << std::endl;
+    threads = t;
     double t0 = get_time_sec();
-    spawn_threads_mp(dst, dst, t);
-    spawn_threads_mp(dst, dst, t);
-    spawn_threads_mp(dst, dst, t);
-    spawn_threads_mp(dst, dst, t);
-    spawn_threads_mp(dst, dst, t);
+    spawn_threads(dst, dst);
+    spawn_threads(dst, dst);
+    spawn_threads(dst, dst);
+    spawn_threads(dst, dst);
+    lines = spawn_threads(dst, dst);
     double t1 = get_time_sec();
     std::cout << " time: " << (t1-t0)/5 << std::endl;
     data.push_back(std::make_tuple(t, (t1 - t0)/5));
   }
- 
   // Draw the lines
-  /*
   for( size_t i = 0; i < lines.size(); i++ ) {
     float rho = get<0>(lines[i]), theta = get<1>(lines[i]);	
-    float crho = cvlines[i][0], ctheta = cvlines[i][1];	
+    //float crho = cvlines[i][0], ctheta = cvlines[i][1];	
     Point pt1, pt2;
     double a = cos(theta), b = sin(theta);
     double x0 = a*rho, y0 = b*rho;
@@ -185,9 +181,9 @@ int main(int argc, char **argv) {
     pt2.y = cvRound(y0 - 2000*(a));
     line(cdst, pt1, pt2, Scalar(0,0,255), 3, 16);
   }
-  printf("Time: %f\n", t1 - t0);
+  //printf("Time: %f\n", t1 - t0);
   imwrite("out_openmp.jpg", cdst);
-  */
+
   std::string outfile = "execution_time_mp.csv";
   std::ofstream myfile(outfile);
 
