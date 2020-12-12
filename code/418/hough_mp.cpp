@@ -22,6 +22,8 @@ std::vector<std::tuple<float, float>> lines;
 int *sort_buf;
 size_t buf_idx;
 int threads;
+float cos_theta[180];
+float sin_theta[180];  
 
 double get_time_sec() {
   struct timeval curr_time;
@@ -42,13 +44,19 @@ struct hough_cmp_gt
 void hough_transform(int w, int h) {
   #pragma omp parallel num_threads(threads)
   {
-  
+
+  #pragma omp for
+  for (int i = 0; i < 180; i++) {
+    cos_theta[i] = cos(i * PI/180.0f);
+    sin_theta[i] = sin(i * PI/180.0f);
+  }
+
   #pragma omp for collapse(2)
   for (int i = 0; i < h; i++) {
     for (int j = 0; j < w; j++) {
       if (img_data.at<uint8_t>(i,j) != 0) {
         for (int theta = 0; theta < accum_width; theta++) {
-	  int rho = round(j * cos(theta * (PI / 180.0f)) + i * sin(theta * (PI / 180.0f)));
+	  int rho = round(j * cos_theta[theta] + i * sin_theta[theta]);
 	  rho += (accum_height - 1)/2;
 	  int index = (rho * accum_width) + theta;
           #pragma omp atomic
