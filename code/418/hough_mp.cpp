@@ -18,7 +18,7 @@ Mat img_data;
 size_t lines_max = 100;
 int accum_height;
 int accum_width;
-int *accum;
+int *accum_global;
 int *sort_buf;
 size_t buf_idx;
 int threads;
@@ -45,8 +45,10 @@ struct hough_cmp_gt
 std::vector<std::tuple<float, float>> hough_transform(int w, int h) {
   #pragma omp parallel num_threads(threads)
   {
+  int32_t accum[accum_height * accum_width];
+  memset(accum, 0, sizeof(int32_t) * accum_height * accum_width);
 
-  #pragma omp for collapse(2)
+  #pragma omp for collapse(2) schedule (dynamic, (h*w)/threads)
   for (int i = 0; i < h; i++) {
     for (int j = 0; j < w; j++) {
       if (img_data.at<uint8_t>(i,j) != 0) {
@@ -60,6 +62,17 @@ std::vector<std::tuple<float, float>> hough_transform(int w, int h) {
       }	
     }
   }
+  #pragma omp critical (update)
+  {
+  for (int i = 0; i < accum_height; i++) {
+    for (int j = 0; j < accum_width; j++) {
+      int index = (i * accum_width) + j;
+      //#pragma omp atomic
+      accum_global[index] += accum[index];
+    }
+  }
+  }
+  
   // find local maximums
   int numrho = accum_height;
   int numangle = accum_width;
@@ -74,11 +87,11 @@ std::vector<std::tuple<float, float>> hough_transform(int w, int h) {
       int right_index = (base_index + 1) > (numrho*numangle) ? -1 : base_index - 1;
       int up_index = (r > 0) ? (r-1) * (numangle) + n: -1;
       int down_index = (r < numrho - 1) ? (r+1) * (numangle) + n: -1;
-      if (accum[base_index] >= threshold &&
-        (left_index == -1 || accum[base_index] > accum[left_index]) && 
-  	(right_index == -1 || accum[base_index] >= accum[right_index]) &&
-        (up_index == -1 || accum[base_index] >= accum[up_index]) && 
-        (down_index == -1 || accum[base_index] > accum[down_index])){
+      if (accum_global[base_index] >= threshold &&
+        (left_index == -1 || accum_global[base_index] > accum_global[left_index]) && 
+  	(right_index == -1 || accum_global[base_index] >= accum_global[right_index]) &&
+        (up_index == -1 || accum_global[base_index] >= accum_global[up_index]) && 
+        (down_index == -1 || accum_global[base_index] > accum_global[down_index])){
         #pragma omp atomic capture
         idx = buf_idx++;
         sort_buf[idx] = base_index;
@@ -88,12 +101,12 @@ std::vector<std::tuple<float, float>> hough_transform(int w, int h) {
 
   }
   // stage 3. sort the detected lines by accumulator value
-  std::sort(sort_buf, sort_buf + buf_idx, hough_cmp_gt(accum));
+  std::sort(sort_buf, sort_buf + buf_idx, hough_cmp_gt(accum_global));
   std::vector<std::tuple<float, float>> lines;
 
   for (int l = 0; l < min(buf_idx, lines_max); ++l) {
     int index = sort_buf[l];
-    float rho = (index/accum_width) - ((accum_height - 1) / 2);
+    float rho = (index/accum_width) - half_rho_height;
     float theta = (index % accum_width) * (PI / 180.0f);
     lines.push_back(std::make_tuple(rho, theta));
   }
@@ -105,7 +118,7 @@ std::vector<std::tuple<float, float>> spawn_threads(Mat dst, Mat src) {
   accum_height = 2 * (src.cols + src.rows) + 1;
   accum_width = 180;
 
-  accum = new int[accum_height * accum_width]();
+  accum_global = new int[accum_height * accum_width]();
   sort_buf = new int[accum_height  * accum_width]();
   buf_idx = 0;
   half_rho_height = (accum_height-1)/2;
@@ -171,7 +184,6 @@ int main(int argc, char **argv) {
   // Draw the lines
   for( size_t i = 0; i < lines.size(); i++ ) {
     float rho = get<0>(lines[i]), theta = get<1>(lines[i]);	
-    //float crho = cvlines[i][0], ctheta = cvlines[i][1];	
     Point pt1, pt2;
     double a = cos(theta), b = sin(theta);
     double x0 = a*rho, y0 = b*rho;
