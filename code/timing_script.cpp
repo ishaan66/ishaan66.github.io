@@ -2,7 +2,7 @@
 #include <fstream>
 #include <string>
 #include "hough.cpp"
-#include "418/hough_simd_basic.cpp"
+#include "418/hough_simd_experiment.cpp"
 #include "418/hough_simd.cpp"
 
 double get_time_sec() {
@@ -60,7 +60,8 @@ int main(int argc, char **argv) {
 		Mat src_temp = src;
 		resize(src_temp, src_temp, Size(curr_cols, curr_rows));
 
-		Canny(src_temp, dst, 50, 200, 3);
+		//Canny(src_temp, dst, 50, 200, 3);
+		Mat dst = Mat(curr_rows, curr_cols, CV_64F, double(1));
 
 		std::vector<std::tuple<float, float>> lines;
 		
@@ -80,9 +81,10 @@ int main(int argc, char **argv) {
 
 		data.push_back(std::make_tuple(curr_rows * curr_cols, (t2 - t1)));
 
-		curr_rows += 20;
-		curr_cols += 20;
+		curr_rows += 50;
+		curr_cols += 50;
 	}
+        std::cout << curr_rows << " " << curr_cols << std::endl;
 
 	std::ofstream myfile(outfile);
 
