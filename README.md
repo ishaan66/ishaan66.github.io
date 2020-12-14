@@ -52,9 +52,9 @@ the highest value indicates the straight line that is most represented in the in
 ### High-level Algorithm Outline of the core of Hough Transformation
 · Initialize accumulator H to all zeros\
 · For each edge point (x,y) in the image\
-      For θ = 0 to 180\
-          ρ = x cos θ + y sin θ\
-          H(θ, ρ) = H(θ, ρ) + 1\
+· · For θ = 0 to 180\
+· · · ρ = x cos θ + y sin θ\
+· · · H(θ, ρ) = H(θ, ρ) + 1\
 · Find the value(s) of (θ, ρ) where H(θ, ρ) is a local maximum\
 · The detected line in the image is given by ρ = x cos θ + y sin θ\
 
