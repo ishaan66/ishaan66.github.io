@@ -1,4 +1,4 @@
-serail:
+serial:
 	g++ -std=c++11 -O3 -fopenmp -mavx2 -mfma -I/home/ranil/ishaan66.github.io/include/opencv -I/home/ranil/ishaan66.github.io/include/opencv2 -L/home/ranil/ishaan66.github.io/lib/ -g -o serial.o hough_serial.cpp -lopencv_core -lopencv_imgproc -lopencv_highgui
 
 omp_simd:
