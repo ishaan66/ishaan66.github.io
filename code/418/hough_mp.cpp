@@ -56,7 +56,6 @@ std::vector<std::tuple<float, float>> hough_transform(int w, int h) {
 	  int rho = round(j * cos_theta[theta] + i * sin_theta[theta]);
 	  rho += (accum_height - 1)/2;
 	  int index = (rho * accum_width) + theta;
-          #pragma omp atomic
 	  accum[index]++;
 	}
       }	
@@ -65,7 +64,7 @@ std::vector<std::tuple<float, float>> hough_transform(int w, int h) {
   #pragma omp critical (update)
   {
   for (int i = 0; i < accum_height; i++) {
-    for (int j = 0; j < accum_width; j++) {
+     for (int j = 0; j < accum_width; j++) {
       int index = (i * accum_width) + j;
       //#pragma omp atomic
       accum_global[index] += accum[index];

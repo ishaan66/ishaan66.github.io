@@ -52,26 +52,7 @@ struct hough_cmp_gt
   }
   const int32_t* aux;
 };
-/*
-void findLocalMaximums_simd_basic(int numrho, int numangle, int threshold, int32_t *accum, std::vector<int> &sort_buf, unsigned int size) {
-  for(int r = 0; r < numrho; r++) {
-    for(int n = 0; n < numangle; n++) {
-      int base_index = r * (numangle) + n;
-      int left_index = (base_index - 1) < 0 ? -1 : base_index - 1;
-      int right_index = (base_index + 1) > size ? -1 : base_index - 1;
-      int up_index = (r > 0) ? (r-1) * (numangle) + n: -1;
-      int down_index = (r < numrho - 1) ? (r+1) * (numangle) + n: -1;
-      if (accum[base_index] >= threshold &&
-         (left_index == -1 || accum[base_index] > accum[left_index]) && 
-         (right_index == -1 || accum[base_index] >= accum[right_index]) &&
-         (up_index == -1 || accum[base_index] >= accum[up_index]) && 
-	 (down_index == -1 || accum[base_index] > accum[down_index])) {
-           sort_buf.push_back(base_index);
-      }
-    }
-  }
-}
-*/
+
 std::vector<std::tuple<float, float>> hough_transform(int w, int h) {
   #pragma omp parallel num_threads(threads)
   {

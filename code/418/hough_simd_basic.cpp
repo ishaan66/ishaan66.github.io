@@ -96,7 +96,6 @@ std::vector<std::tuple<float, float>> hough_transform_simd_basic(Mat img_data, i
 
 
         for (int32_t theta = 0; theta < accum_width; theta += 8) {
-          double c1 = get_time_sec();
           rho_vec = _mm256_setzero_ps();
           cos_vec1 = _mm256_loadu_ps(&(cos_theta[theta]));
           sin_vec1 = _mm256_loadu_ps(&(sin_theta[theta]));
@@ -108,7 +107,6 @@ std::vector<std::tuple<float, float>> hough_transform_simd_basic(Mat img_data, i
           rho_floor = _mm256_round_ps(rho_vec, _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC);
           rho_floor = _mm256_add_ps(half_rho_height_v, rho_floor);
           index = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_floor, theta_vec1));
-          double c11 = get_time_sec();
 	  accum[_mm256_extract_epi32(index, 0)]++;
 	  accum[_mm256_extract_epi32(index, 1)]++;
 	  accum[_mm256_extract_epi32(index, 2)]++;
@@ -118,8 +116,6 @@ std::vector<std::tuple<float, float>> hough_transform_simd_basic(Mat img_data, i
           accum[_mm256_extract_epi32(index, 5)]++;
           accum[_mm256_extract_epi32(index, 6)]++;
 	  accum[_mm256_extract_epi32(index, 7)]++;
-	  double c2 = get_time_sec();
-          printf("P1 = %f, P2 = %f\n", c11-c1, c2-c1);
 	}
       }	
     }
@@ -143,7 +139,7 @@ std::vector<std::tuple<float, float>> hough_transform_simd_basic(Mat img_data, i
   return lines;
 }
 
-
+/*
 int main(int argc, char **argv) {
   if(argc != 2) {
       printf("Please supply the proper arguments: ./simd_basic.o [inputFile]\n");
@@ -188,4 +184,4 @@ int main(int argc, char **argv) {
   imwrite("out_simd_basic.jpg", cdst);
   return 0;
 }
-
+*/

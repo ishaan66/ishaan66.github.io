@@ -11,6 +11,12 @@
 using namespace cv;
 using namespace std;
 
+double get_time_sec() {
+  struct timeval curr_time;
+  gettimeofday(&curr_time, NULL);
+  return curr_time.tv_sec + curr_time.tv_usec / 1000000.0;
+}
+
 struct hough_cmp_gt_serial
 {
     hough_cmp_gt_serial(const int* _aux) : aux(_aux) {}
@@ -88,11 +94,11 @@ std::vector<std::tuple<float, float>> hough_transform_serial(Mat img_data, int w
   return lines;
 }
 
-/*
+
 int main() {
   // Loads an image
   Mat dst, cdst;
-  Mat src = imread("grid.jpg", IMREAD_GRAYSCALE );
+  Mat src = imread("418/skyline.jpg", IMREAD_GRAYSCALE );
 
   // Check if image is loaded fine
   if(src.empty()){
@@ -109,8 +115,9 @@ int main() {
   // Standard Hough Line Transform
   vector<Vec2f> cvlines; // will hold the results of the detection
   std::vector<std::tuple<float, float>> lines;
-
+  double t0 = get_time_sec();
   lines = hough_transform_serial(dst, src.cols, src.rows, 100);
+  double t1 = get_time_sec();
   // Draw the lines
   for(size_t i = 0; i < lines.size(); i++) {
     float rho = get<0>(lines[i]), theta = get<1>(lines[i]);	
@@ -124,7 +131,8 @@ int main() {
     pt2.y = cvRound(y0 - 2000*(a));
     line(cdst, pt1, pt2, Scalar(0,0,255), 3, 16);
   }
+  printf("TIME: %f\n", t1 - t0);
   imwrite("out_my_serial.jpg", cdst);
   return 0;
 }
-*/
+

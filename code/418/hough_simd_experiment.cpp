@@ -68,7 +68,6 @@ std::vector<std::tuple<float, float>> hough_transform_simd_basic(Mat img_data, i
     sin_theta[i] = sin(i * PI/180.0f);
   }
 
-
   __m256 x_y;
   __m256 trig_vec1;
   __m256 theta_vec1;
@@ -90,11 +89,11 @@ std::vector<std::tuple<float, float>> hough_transform_simd_basic(Mat img_data, i
   float accum_w = accum_width * 1.0f;
   __m256 half_rho_height_v = _mm256_broadcast_ss(&half_rho_height);
   __m256 accum_width_v = _mm256_broadcast_ss((float *)&accum_w);
-
+  double t0 = get_time_sec();
+  double mem_time = 0;
   for (int i = 0; i < h; i++) {
     for (int j = 0; j < w; j++) {
       if (img_data.at<uint8_t>(i, j) != 0) {
-
         float x_val = j*1.0f;
         float y_val = i*1.0f;
 
@@ -138,7 +137,7 @@ std::vector<std::tuple<float, float>> hough_transform_simd_basic(Mat img_data, i
           rho_vec2 = _mm256_add_ps(half_rho_height_v, rho_vec2);
           rho_vec3 = _mm256_add_ps(half_rho_height_v, rho_vec3);
           rho_vec4 = _mm256_add_ps(half_rho_height_v, rho_vec4);
-
+          /*
           index = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec1, theta_vec1));
 	  accum[_mm256_extract_epi32(index, 0)]++;
 	  accum[_mm256_extract_epi32(index, 1)]++;
@@ -176,7 +175,8 @@ std::vector<std::tuple<float, float>> hough_transform_simd_basic(Mat img_data, i
           accum[_mm256_extract_epi32(index, 5)]++;
           accum[_mm256_extract_epi32(index, 6)]++;
 	  accum[_mm256_extract_epi32(index, 7)]++;
-
+          mem_time += get_time_sec() - st;
+          */
 	  theta_vec1 = _mm256_add_ps(theta_vec4, theta_offset);
 	  theta_vec2 = _mm256_add_ps(theta_vec1, theta_offset);
 	  theta_vec3 = _mm256_add_ps(theta_vec2, theta_offset);
@@ -185,6 +185,9 @@ std::vector<std::tuple<float, float>> hough_transform_simd_basic(Mat img_data, i
       }	
     }
   }
+  double t1 = get_time_sec();
+  printf("loop tim = %f\n", t1 - t0);
+  printf("mem time = %f\n", mem_time);
 
   std::vector<std::tuple<float, float>> lines;
   std::vector<int> sort_buf;
@@ -228,8 +231,9 @@ int main(int argc, char **argv) {
   // Standard Hough Line Transform
   //vector<Vec2f> lines; // will hold the results of the detection
   std::vector<std::tuple<float, float>> lines;
+  dst = Mat(2520,2520, CV_64F, double(1));
   double t0 = get_time_sec();
-  lines = hough_transform_simd_basic(dst, src.cols, src.rows, 100);
+  lines = hough_transform_simd_basic(dst, dst.cols, dst.rows, 100);
   double t1 = get_time_sec();
   
   // Draw the lines
