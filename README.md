@@ -50,13 +50,13 @@ that are positioned on the line represented by quantized parameters (r, θ). So,
 the highest value indicates the straight line that is most represented in the input image.
 
 ### High-level Algorithm Outline of the core of Hough Transformation
-· Initialize accumulator H to all zeros
-· For each edge point (x,y) in the image
-      For θ = 0 to 180
-          ρ = x cos θ + y sin θ
-          H(θ, ρ) = H(θ, ρ) + 1
-· Find the value(s) of (θ, ρ) where H(θ, ρ) is a local maximum
-· The detected line in the image is given by ρ = x cos θ + y sin θ
+· Initialize accumulator H to all zeros\
+· For each edge point (x,y) in the image\
+      For θ = 0 to 180\
+          ρ = x cos θ + y sin θ\
+          H(θ, ρ) = H(θ, ρ) + 1\
+· Find the value(s) of (θ, ρ) where H(θ, ρ) is a local maximum\
+· The detected line in the image is given by ρ = x cos θ + y sin θ\
 
 There are many independent operations involved in the Hough transform algorithm which
 provides us various opportunities for optimization. The lines highlighted in yellow are lines
