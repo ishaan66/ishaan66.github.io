@@ -66,7 +66,6 @@ std::vector<std::tuple<float, float>> hough_transform(int w, int h) {
   for (int i = 0; i < accum_height; i++) {
      for (int j = 0; j < accum_width; j++) {
       int index = (i * accum_width) + j;
-      //#pragma omp atomic
       accum_global[index] += accum[index];
     }
   }

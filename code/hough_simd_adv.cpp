@@ -137,7 +137,7 @@ std::vector<std::tuple<float, float>> hough_transform_simd_basic(Mat img_data, i
           rho_vec2 = _mm256_add_ps(half_rho_height_v, rho_vec2);
           rho_vec3 = _mm256_add_ps(half_rho_height_v, rho_vec3);
           rho_vec4 = _mm256_add_ps(half_rho_height_v, rho_vec4);
-          /*
+
           index = _mm256_cvttps_epi32(_mm256_fmadd_ps(accum_width_v, rho_vec1, theta_vec1));
 	  accum[_mm256_extract_epi32(index, 0)]++;
 	  accum[_mm256_extract_epi32(index, 1)]++;
@@ -176,7 +176,6 @@ std::vector<std::tuple<float, float>> hough_transform_simd_basic(Mat img_data, i
           accum[_mm256_extract_epi32(index, 6)]++;
 	  accum[_mm256_extract_epi32(index, 7)]++;
           mem_time += get_time_sec() - st;
-          */
 	  theta_vec1 = _mm256_add_ps(theta_vec4, theta_offset);
 	  theta_vec2 = _mm256_add_ps(theta_vec1, theta_offset);
 	  theta_vec3 = _mm256_add_ps(theta_vec2, theta_offset);

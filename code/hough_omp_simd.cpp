@@ -289,14 +289,6 @@ int main(int argc, char **argv) {
     data.push_back(std::make_tuple(i, (t1 - t0)/5));
   }
  
-  // Standard Hough Line Transform
-  //vector<Vec2f> lines; // will hold the results of the detection
-  //std::vector<std::tuple<float, float>> lines;
-  //double t0 = get_time_sec();
-  //lines = spawn_threads(dst, src);
-  //lines = hough_transform_simd_basic(dst, src.cols, src.rows, 100);
-  //double t1 = get_time_sec();
-  
   // Draw the lines
   for(size_t i = 0; i < lines.size(); i++) {
     float rho = get<0>(lines[i]), theta = get<1>(lines[i]);	
