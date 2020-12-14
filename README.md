@@ -34,7 +34,7 @@ images and still images but suffers from execution time and resource requirement
 algorithm is an effective method to detect lines in an image, the Hough Transform is known to be
 notoriously slow and is not used for real-time applications.
 
-# How it works
+### How it works
 
 The algorithm uses a two-dimensional array – the accumulator – to detect the existence of a line
 described in polar coordinates using the Hesse normal form as . The dimension of the
@@ -49,7 +49,7 @@ the accumulator. Each element of the matrix has a value equal to the sum of the 
 that are positioned on the line represented by quantized parameters (r, θ). So, the element with
 the highest value indicates the straight line that is most represented in the input image.
 
-# High-level Algorithm Outline of the core of Hough Transformation
+### High-level Algorithm Outline of the core of Hough Transformation
 · Initialize accumulator H to all zeros
 · For each edge point (x,y) in the image
       For θ = 0 to 180
@@ -95,7 +95,7 @@ already have access to the Bridges machine so we don’t have to do extra work t
 
 ## Goals and Deliverables
 
-# Plan
+### Plan
 
 Our goal is to speedup the Hough Transform from the fast serial implementation found in the
 OpenCV library. We want to compare and contrast different techniques to parallelize the algorithm to see
@@ -115,7 +115,7 @@ number of processors increases. We will also try varying image sizes with each n
 we can see how problem size affects the speedup. For our demo, we will show the speedup graphs for the
 different implementations with increasing number of processors and varying image sizes.
 
-# Stretch Goals
+### Stretch Goals
 
 If we have time, we hope to also implement an OpenMPI version of the Hough Transform. We still need
 to decide the architecture of this implementation and if it is better to have a root thread assigning work or
@@ -127,13 +127,13 @@ these speedup graphs to our demo.
 
 ## Platform Choice
 
-# Language
+### Language
 We are choosing to do our project in C++. This is because C++ provides in-built data structures
 such as queues that we can use for a potential OpenMP / OpenMPI solution. It is also compatible
 with AVX intrinsics. Both members of our group are very comfortable with this language and we
 feel that we can be the most efficient in C++.
 
-# Computer
+### Computer
 We plan to use the Bridges machine to run each of our parallel implementations. The high
 number of cores and MPI cores will allow us to fully test the extent of parallelism available in
 each of the implementations we plan on doing.
